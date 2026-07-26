@@ -53,7 +53,7 @@ impl Render for EditorView {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl gpui::IntoElement {
         Input::new(&self.input_state)
             .border(px(0.0))
-            .font_family("JetBrainsMono Nerd Font Mono")
+            .font_family("JetBrainsMono Nerd Font")
     }
 }
 
