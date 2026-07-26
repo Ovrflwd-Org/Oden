@@ -4,6 +4,7 @@ use gpui::{
 use gpui_component::{
     ActiveTheme, Icon, TitleBar,
     button::{Button, ButtonVariants},
+    h_flex,
     label::Label,
 };
 
@@ -43,7 +44,6 @@ impl Render for Titlebar {
         _window: &mut gpui::Window,
         cx: &mut gpui::prelude::Context<Self>,
     ) -> impl gpui::prelude::IntoElement {
-        const APP_VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
         let muted = cx.theme().muted_foreground;
         let green = cx.theme().green_light;
         let red = cx.theme().red_light;
@@ -64,10 +64,7 @@ impl Render for Titlebar {
         } else {
             "issues"
         };
-        let status_message = format!(
-            "{} {} found {}...",
-            total_issues_found, issue_label, message
-        );
+        let status_message = format!("{} {} {}", total_issues_found, issue_label, message);
         let status_message = SharedString::from(status_message);
         let (icon_name, color) = if total_issues_found == 0 {
             (IconName::Check, green)
@@ -75,23 +72,23 @@ impl Render for Titlebar {
             (IconName::Close, red)
         };
         TitleBar::new()
-            .child("Oden")
             // render the status of the app.
             .child(
-                Button::new("issues")
-                    .cursor(CursorStyle::PointingHand)
-                    // TODO: Navigate to a file showing all the issues.
-                    .tooltip("check issue logs")
-                    .h_3_4()
-                    .ghost()
-                    .flex()
-                    .flex_row()
-                    .gap_2()
-                    .items_center()
-                    .child(Icon::new(icon_name).text_color(color))
-                    .child(Label::new(status_message).text_color(muted)),
+                h_flex().gap_2().child(SharedString::from("Oden")).child(
+                    Button::new("issues")
+                        .cursor(CursorStyle::PointingHand)
+                        // TODO: Navigate to a file showing all the issues.
+                        .tooltip("check issue logs")
+                        .h_3_4()
+                        .ghost()
+                        .flex()
+                        .flex_row()
+                        .gap_2()
+                        .items_center()
+                        .child(Icon::new(icon_name).text_color(color))
+                        .child(Label::new(status_message).text_color(muted)),
+                ),
             )
-            .child(Label::new(APP_VERSION).text_color(muted))
     }
 }
 
