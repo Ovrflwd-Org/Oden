@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.7.1](https://github.com/out-of-order/oden/compare/oden-v0.7.0...oden-v0.7.1) (2026-07-26)
+
+
+### Bug Fixes
+
+* **oden-app:** font name for editor component ([#30](https://github.com/out-of-order/oden/issues/30)) ([c666107](https://github.com/out-of-order/oden/commit/c6661073d3a9736ea9580c6f6a365352214a2d53))
+
 ## [0.7.0](https://github.com/out-of-order/oden/compare/oden-v0.6.0...oden-v0.7.0) (2026-07-19)
 
 
