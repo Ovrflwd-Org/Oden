@@ -6,11 +6,12 @@ use gpui::{
     Window, div, px,
 };
 use gpui_component::{
-    ActiveTheme, Icon, IndexPath, Sizable, StyledExt,
+    ActiveTheme, Icon, IndexPath, Sizable,
     button::{Button, ButtonVariants},
     input::{Input, InputEvent, InputState},
     label::Label,
     list::{List, ListDelegate, ListItem, ListState},
+    v_flex,
 };
 use oden_core::repository::ItemRepositoryTrait;
 
@@ -255,24 +256,26 @@ impl ListDelegate for ItemListDelegate {
         let muted_color = theme.muted_foreground;
         let date_color = theme.blue;
         let border_color = theme.border;
+        let size = cx.theme().mono_font_size;
         let focus = self.focus.clone();
         self.items.get(ix.row).map(|item| {
             let selected_id = item.id;
             ListItem::new(ix)
                 .h_32()
                 .overflow_hidden()
-                .p_2()
                 .flex()
                 .flex_col()
+                .justify_between()
+                .p_2()
                 .border_b(px(1.0))
                 .border_color(border_color)
                 .child(Label::new(item.name.clone()))
-                .child(
+                .child(v_flex().children(vec![
                     Label::new(item.created_at.date_naive().to_string())
                         .text_color(date_color)
-                        .font_thin(),
-                )
-                .child(Label::new(preview_content(item.content.clone())).text_color(muted_color))
+                        .text_size(size),
+                    Label::new(preview_content(item.content.clone()))
+                        .text_color(muted_color)]))
                 .on_click(move |_event, window, cx| {
                     focus.focus(window);
                     let select_item_action = SelectItem { selected_id };
@@ -360,10 +363,7 @@ impl Render for ListView {
                                             .gap_1()
                                             .w_full()
                                             .child(div())
-                                            .child(
-                                                Label::new(SharedString::from("All Items"))
-                                                    .font_bold(),
-                                            )
+                                            .child(Label::new(SharedString::from("All Items")))
                                             .child(
                                                 Button::new("new-item")
                                                     .icon(

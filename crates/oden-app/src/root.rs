@@ -20,6 +20,8 @@ use crate::{
     views::{list::ListView, titlebar::Titlebar},
 };
 
+const APP_VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
+
 pub struct AppRoot {
     pub(crate) app_mode: Entity<AppMode>,
     pub(crate) selected_id_state: Entity<SelectedIdState>,
@@ -81,6 +83,7 @@ impl AppRoot {
     fn render_sidebar(&self, cx: &mut gpui::Context<Self>) -> impl IntoElement + use<> {
         let border_color = cx.theme().border;
         let sidebar_bg = cx.theme().sidebar;
+        let muted_color = cx.theme().muted_foreground;
 
         let icon_rail = vec![
             self.nav_button(IconName::List, AppMode::List, "List Mode"),
@@ -117,6 +120,12 @@ impl AppRoot {
                     .flex_col()
                     .items_center()
                     .p_2()
+                    .child(
+                        div()
+                            .child(APP_VERSION)
+                            .text_color(muted_color)
+                            .text_size(px(14.)),
+                    )
                     .child(
                         Button::new("settings")
                             .ghost()
