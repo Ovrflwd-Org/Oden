@@ -1,5 +1,5 @@
 [workspace]
-members = ["crates/oden-app", "crates/oden-core", "crates/oden-graph"]
+members = ["crates/comrak-gpui", "crates/oden-app", "crates/oden-core", "crates/oden-graph"]
 resolver = "2"
 
 [workspace.dependencies]

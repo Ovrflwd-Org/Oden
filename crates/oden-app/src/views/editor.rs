@@ -1,5 +1,7 @@
-use gpui::{AppContext, Context, Entity, Render, Styled, Subscription, Window, px};
+use comrak_gpui::render_document;
+use gpui::{AppContext, Context, Entity, ParentElement, Render, Styled, Subscription, Window, px};
 use gpui_component::input::{Input, InputState};
+use gpui_component::resizable::{h_resizable, resizable_panel};
 use uuid::Uuid;
 
 use crate::models::Item;
@@ -50,10 +52,17 @@ impl EditorView {
 }
 
 impl Render for EditorView {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl gpui::IntoElement {
-        Input::new(&self.input_state)
-            .border(px(0.0))
-            .font_family("JetBrainsMono Nerd Font")
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        let content = &self.input_state.read(cx).text().as_str().unwrap_or("");
+        h_resizable("split pane editor")
+            .child(
+                resizable_panel().child(
+                    Input::new(&self.input_state)
+                        .border(px(0.))
+                        .font_family("JetBrainsMono Nerd Font"),
+                ),
+            )
+            .child(resizable_panel().child(render_document(content)))
     }
 }
 
