@@ -62,7 +62,7 @@ impl Render for EditorView {
                         .font_family("JetBrainsMono Nerd Font"),
                 ),
             )
-            .child(resizable_panel().child(render_document(content)))
+            .child(resizable_panel().child(render_document(content, cx)))
     }
 }
 
