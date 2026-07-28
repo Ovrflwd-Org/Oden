@@ -1,14 +1,23 @@
 use std::cell::RefCell;
 
 use comrak::arena_tree::Node;
-use comrak::nodes::Ast;
-use comrak::nodes::NodeValue::{Document, Heading, Paragraph, Strong, Text};
+use comrak::nodes::NodeValue::{Code, Document, Emph, Heading, Paragraph, Strong, Text};
+use comrak::nodes::{Ast};
 use comrak::{Arena, Options, parse_document};
 use gpui::{
     AnyElement, App, Font, FontFeatures, FontStyle, FontWeight, IntoElement, ParentElement, Styled,
     StyledText, TextRun, div,
 };
 use gpui_component::{ActiveTheme, Theme};
+
+#[derive(Clone, Default)]
+struct TextStyle {
+    weight: FontWeight,
+    style: FontStyle,
+    background_color: Option<gpui::Hsla>,
+    underline: Option<gpui::UnderlineStyle>,
+    strikethrough: Option<gpui::StrikethroughStyle>,
+}
 // parses a markdown document using comrak and returns a
 // renderable gpui element
 pub fn render_document(document: &str, cx: &App) -> AnyElement {
@@ -71,13 +80,13 @@ fn render_node<'a>(node: &'a Node<'a, RefCell<Ast>>, cx: &App) -> AnyElement {
         Paragraph => {
             let mut text = String::new();
             let mut runs = vec![];
-            collect_segments(node, &mut text, FontWeight::NORMAL, &mut runs, theme);
+            collect_segments(node, &mut text, &TextStyle::default(), &mut runs, theme);
             StyledText::new(text).with_runs(runs).into_any_element()
-        },
+        }
         Text(cow) => {
             let text = cow.as_ref().to_string();
             div().child(text).into_any_element()
-        },
+        }
         _ => div().into_any_element(),
     }
 }
@@ -86,7 +95,7 @@ fn render_node<'a>(node: &'a Node<'a, RefCell<Ast>>, cx: &App) -> AnyElement {
 fn collect_segments<'a>(
     node: &'a Node<'a, RefCell<Ast>>,
     text: &mut String,
-    font_weight: FontWeight,
+    style: &TextStyle,
     runs: &mut Vec<TextRun>,
     theme: &Theme,
 ) {
@@ -101,17 +110,42 @@ fn collect_segments<'a>(
                         family: theme.font_family.clone(),
                         features: FontFeatures::default(),
                         fallbacks: None,
-                        weight: font_weight,
-                        style: FontStyle::Normal,
+                        weight: style.weight,
+                        style: style.style,
                     },
                     color: theme.foreground,
-                    background_color: None,
-                    underline: None,
-                    strikethrough: None,
+                    background_color: style.background_color,
+                    underline: style.underline,
+                    strikethrough: style.strikethrough,
                 });
             }
             Strong => {
-                collect_segments(child, text, FontWeight::EXTRA_BOLD, runs, theme);
+                let mut child_style = style.clone();
+                child_style.weight = FontWeight::BOLD;
+                collect_segments(child, text, &child_style, runs, theme);
+            }
+            Emph => {
+                let mut child_style = style.clone();
+                child_style.style = FontStyle::Italic;
+                collect_segments(child, text, &child_style, runs, theme);
+            }
+            Code(node_code) => {
+                let s = &node_code.literal;
+                text.push_str(s);
+                runs.push(TextRun {
+                    len: s.len(),
+                    font: Font {
+                        family: theme.mono_font_family.clone(),
+                        features: FontFeatures::default(),
+                        fallbacks: None,
+                        weight: style.weight,
+                        style: style.style,
+                    },
+                    color: theme.secondary_foreground,
+                    background_color: Some(theme.secondary),
+                    underline: style.underline,
+                    strikethrough: style.strikethrough,
+                });
             }
             _ => {}
         }
