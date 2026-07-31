@@ -1,12 +1,14 @@
 use std::cell::RefCell;
 
 use comrak::arena_tree::Node;
-use comrak::nodes::NodeValue::{Code, Document, Emph, Heading, Paragraph, Strong, Text};
-use comrak::nodes::{Ast};
+use comrak::nodes::Ast;
+use comrak::nodes::NodeValue::{
+    Code, CodeBlock, Document, Emph, Heading, LineBreak, Paragraph, Strong, Text,
+};
 use comrak::{Arena, Options, parse_document};
 use gpui::{
-    AnyElement, App, Font, FontFeatures, FontStyle, FontWeight, IntoElement, ParentElement, Styled,
-    StyledText, TextRun, div,
+    AnyElement, App, Font, FontFeatures, FontStyle, FontWeight, IntoElement, ParentElement,
+    SharedString, Styled, StyledText, TextRun, div,
 };
 use gpui_component::{ActiveTheme, Theme};
 
@@ -87,6 +89,30 @@ fn render_node<'a>(node: &'a Node<'a, RefCell<Ast>>, cx: &App) -> AnyElement {
             let text = cow.as_ref().to_string();
             div().child(text).into_any_element()
         }
+        CodeBlock(code_block) => {
+            let literal = &code_block.literal;
+            let mut literal = literal.clone();
+            let _ = literal.pop(); 
+            div()
+                .border_r_2()
+                .border_color(theme.border)
+                .bg(theme.secondary)
+                .p_2()
+                .mt_2()
+                .mb_2()
+                .flex()
+                .flex_col()
+                .justify_center()
+                .child(
+                    div()
+                        // TODO: syntax highlighting for code blocks.
+                        .child(SharedString::from(literal.to_string()))
+                        .font_family(theme.mono_font_family.clone())
+                        .text_sm()
+                        .text_color(theme.secondary_foreground),
+                )
+                .into_any_element()
+        }
         _ => div().into_any_element(),
     }
 }
@@ -106,6 +132,23 @@ fn collect_segments<'a>(
                 text.push_str(s);
                 runs.push(TextRun {
                     len: s.len(),
+                    font: Font {
+                        family: theme.font_family.clone(),
+                        features: FontFeatures::default(),
+                        fallbacks: None,
+                        weight: style.weight,
+                        style: style.style,
+                    },
+                    color: theme.foreground,
+                    background_color: style.background_color,
+                    underline: style.underline,
+                    strikethrough: style.strikethrough,
+                });
+            }
+            LineBreak => {
+                text.push('\n');
+                runs.push(TextRun {
+                    len: 1,
                     font: Font {
                         family: theme.font_family.clone(),
                         features: FontFeatures::default(),
