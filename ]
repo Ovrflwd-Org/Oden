@@ -7,7 +7,8 @@ use comrak::nodes::NodeValue::{
 };
 use comrak::{Arena, Options, parse_document};
 use gpui::{
-    AnyElement, App, Font, FontFeatures, FontStyle, FontWeight, IntoElement, ParentElement, SharedString, Styled, StyledText, TextRun, div, green, px,
+    AnyElement, App, Font, FontFeatures, FontStyle, FontWeight, IntoElement, ParentElement,
+    SharedString, Styled, StyledText, TextRun, div,
 };
 use gpui_component::{ActiveTheme, Theme};
 
@@ -85,7 +86,7 @@ fn render_node<'a>(node: &'a Node<'a, RefCell<Ast>>, cx: &App) -> AnyElement {
         }
         Text(cow) => {
             let text = cow.as_ref().to_string();
-            div().child(text).into_any_element()
+            div().whitespace_normal().child(text).into_any_element()
         }
         CodeBlock(code_block) => {
             let literal = &code_block.literal;
