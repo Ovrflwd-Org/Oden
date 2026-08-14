@@ -2,15 +2,17 @@ use std::cell::RefCell;
 use std::ops::Range;
 
 use comrak::arena_tree::Node;
-use comrak::nodes::Ast;
 use comrak::nodes::NodeValue::{
-    Code, CodeBlock, Document, Emph, Heading, LineBreak, Link, Paragraph, Strong, Text,
+    self, Code, CodeBlock, Document, Emph, Heading, Item, LineBreak, Link, List, Paragraph, Strong,
+    TaskItem, Text,
 };
+use comrak::nodes::{Ast, ListType};
 use comrak::{Arena, Options, parse_document};
 use gpui::{
     AnyElement, App, ElementId, Font, FontFeatures, FontStyle, FontWeight, InteractiveText,
-    IntoElement, ParentElement, SharedString, Styled, StyledText, TextRun, div,
+    IntoElement, ParentElement, SharedString, Styled, StyledText, TextRun, div, px, rems,
 };
+use gpui_component::checkbox::Checkbox;
 use gpui_component::{ActiveTheme, Theme};
 
 #[derive(Clone, Default)]
@@ -26,27 +28,55 @@ struct TextStyle {
 // renderable gpui element
 pub fn render_document(document: &str, cx: &App) -> AnyElement {
     let arena = Arena::new();
-    let root = parse_document(&arena, document, &Options::default());
+    let mut options = Options::default();
+    options.extension.tasklist = true;
+    let root = parse_document(&arena, document, &options);
     render_node(root, cx)
+}
+
+fn render_block_for_children<'a>(node: &'a Node<'a, RefCell<Ast>>, cx: &App) -> Vec<AnyElement> {
+    let children = node.children().collect::<Vec<_>>();
+    node.children()
+        .enumerate()
+        .map(|(idx, child)| {
+            let is_last = idx == children.len() - 1;
+            let gap = if is_last { 0. } else { block_for_node(child) };
+            div()
+                .pb(rems(gap))
+                .child(render_node(child, cx))
+                .into_any_element()
+        })
+        .collect()
+}
+
+// applies semantic gaps between children based on their node type
+fn block_for_node(node: &Node<'_, RefCell<Ast>>) -> f32 {
+    match &node.data().value {
+        NodeValue::Paragraph => 0.8, // rem
+        NodeValue::Heading(_) => 0.4,
+        NodeValue::CodeBlock(_) => 1.0,
+        NodeValue::List(_) => 1.0,
+        NodeValue::BlockQuote => 1.0,
+        _ => 0.6,
+    }
 }
 
 // recursively traverses the AST tree by using the children() method and maps
 // each child into a gpui element
 fn render_node<'a>(node: &'a Node<'a, RefCell<Ast>>, cx: &App) -> AnyElement {
     let theme = cx.theme();
+    println!("{:?}", node.data().value);
     match &node.data().value {
         Document => div()
             .p_4()
+            .gap_12()
             .size_full()
-            .children(
-                node.children()
-                    .map(|node| render_node(node, cx))
-                    .collect::<Vec<_>>(),
-            )
+            .children(render_block_for_children(node, cx))
             .into_any_element(),
         Heading(node_heading) => match node_heading.level {
             1 => div()
                 .text_2xl()
+                .text_color(cx.theme().primary)
                 .font_weight(FontWeight::BOLD)
                 .children(
                     node.children()
@@ -56,6 +86,7 @@ fn render_node<'a>(node: &'a Node<'a, RefCell<Ast>>, cx: &App) -> AnyElement {
                 .into_any_element(),
             2 => div()
                 .text_xl()
+                .text_color(cx.theme().secondary_foreground)
                 .font_weight(FontWeight::BOLD)
                 .children(
                     node.children()
@@ -65,6 +96,7 @@ fn render_node<'a>(node: &'a Node<'a, RefCell<Ast>>, cx: &App) -> AnyElement {
                 .into_any_element(),
             3 => div()
                 .text_lg()
+                .text_color(cx.theme().accent_foreground)
                 .font_weight(FontWeight::BOLD)
                 .children(
                     node.children()
@@ -131,6 +163,49 @@ fn render_node<'a>(node: &'a Node<'a, RefCell<Ast>>, cx: &App) -> AnyElement {
                 )
                 .into_any_element()
         }
+        List(_) => div()
+            .flex()
+            .flex_col()
+            .children(
+                node.children()
+                    .map(|node| render_node(node, cx))
+                    .collect::<Vec<_>>(),
+            )
+            .into_any_element(),
+        Item(metadata) => {
+            let symbol = match metadata.list_type {
+                ListType::Bullet => SharedString::from("•"),
+                ListType::Ordered => SharedString::from(format!("{}.", metadata.start)),
+            };
+            div()
+                .flex()
+                .flex_row()
+                .items_center()
+                .gap_2()
+                .pl(px(metadata.padding as f32))
+                .child(symbol)
+                .child(
+                    // text wrappers should have flex_1, so text wraps to available width.
+                    div().flex_1().w_full().min_w_0().children(
+                        node.children()
+                            .map(|node| render_node(node, cx))
+                            .collect::<Vec<_>>(),
+                    ),
+                )
+                .into_any_element()
+        }
+        TaskItem(metadata) => div()
+            .flex()
+            .flex_row()
+            .items_center()
+            .gap_2()
+            .child(Checkbox::new("list-item-checkbox").checked(metadata.symbol.is_some()))
+            .children(
+                node.children()
+                    .map(|node| render_node(node, cx))
+                    .collect::<Vec<_>>(),
+            )
+            .into_any_element(),
         _ => div().into_any_element(),
     }
 }
@@ -164,7 +239,11 @@ fn collect_segments<'a>(
                     strikethrough: style.strikethrough,
                 });
             }
+            comrak::nodes::NodeValue::SoftBreak => {
+                println!("called soft break");
+            }
             LineBreak => {
+                print!("Called line break");
                 text.push('\n');
                 runs.push(TextRun {
                     len: 1,
@@ -183,11 +262,13 @@ fn collect_segments<'a>(
             }
             Strong => {
                 let mut child_style = style.clone();
+                child_style.color = Some(theme.red);
                 child_style.weight = FontWeight::BOLD;
                 collect_segments(child, text, &child_style, runs, links, theme);
             }
             Emph => {
                 let mut child_style = style.clone();
+                child_style.color = Some(theme.green);
                 child_style.style = FontStyle::Italic;
                 collect_segments(child, text, &child_style, runs, links, theme);
             }
@@ -216,7 +297,7 @@ fn collect_segments<'a>(
                         weight: style.weight,
                         style: style.style,
                     },
-                    color: theme.secondary_foreground,
+                    color: theme.primary,
                     background_color: Some(theme.secondary),
                     underline: style.underline,
                     strikethrough: style.strikethrough,

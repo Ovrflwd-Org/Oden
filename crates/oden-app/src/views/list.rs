@@ -401,7 +401,7 @@ impl Render for ListView {
                     .min_w_0()
                     .min_h_0()
                     .overflow_hidden()
-                    .child(self.entities.editor.clone())
+                    .child(self.entities.editor.clone()),
             )
     }
 }
