@@ -180,7 +180,6 @@ fn render_node<'a>(node: &'a Node<'a, RefCell<Ast>>, cx: &App) -> AnyElement {
             div()
                 .flex()
                 .flex_row()
-                .items_center()
                 .gap_2()
                 .pl(px(metadata.padding as f32))
                 .child(symbol)
