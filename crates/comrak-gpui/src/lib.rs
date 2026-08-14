@@ -3,8 +3,8 @@ use std::ops::Range;
 
 use comrak::arena_tree::Node;
 use comrak::nodes::NodeValue::{
-    self, Code, CodeBlock, Document, Emph, Heading, Item, LineBreak, Link, List, Paragraph, Strong,
-    TaskItem, Text,
+    self, BlockQuote, Code, CodeBlock, Document, Emph, Heading, Item, LineBreak, Link, List,
+    Paragraph, Strong, TaskItem, Text,
 };
 use comrak::nodes::{Ast, ListType};
 use comrak::{Arena, Options, parse_document};
@@ -65,7 +65,6 @@ fn block_for_node(node: &Node<'_, RefCell<Ast>>) -> f32 {
 // each child into a gpui element
 fn render_node<'a>(node: &'a Node<'a, RefCell<Ast>>, cx: &App) -> AnyElement {
     let theme = cx.theme();
-    println!("{:?}", node.data().value);
     match &node.data().value {
         Document => div()
             .p_4()
@@ -163,6 +162,20 @@ fn render_node<'a>(node: &'a Node<'a, RefCell<Ast>>, cx: &App) -> AnyElement {
                 )
                 .into_any_element()
         }
+        BlockQuote => div()
+            .flex()
+            .flex_col()
+            .p_2()
+            .border_l(px(2.))
+            .border_color(theme.border)
+            .text_color(theme.muted)
+            .bg(theme.muted)
+            .children(
+                node.children()
+                    .map(|node| render_node(node, cx))
+                    .collect::<Vec<_>>(),
+            )
+            .into_any_element(),
         List(_) => div()
             .flex()
             .flex_col()
@@ -180,7 +193,6 @@ fn render_node<'a>(node: &'a Node<'a, RefCell<Ast>>, cx: &App) -> AnyElement {
             div()
                 .flex()
                 .flex_row()
-                .items_center()
                 .gap_2()
                 .pl(px(metadata.padding as f32))
                 .child(symbol)
@@ -239,11 +251,7 @@ fn collect_segments<'a>(
                     strikethrough: style.strikethrough,
                 });
             }
-            comrak::nodes::NodeValue::SoftBreak => {
-                println!("called soft break");
-            }
             LineBreak => {
-                print!("Called line break");
                 text.push('\n');
                 runs.push(TextRun {
                     len: 1,
