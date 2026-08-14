@@ -1,13 +1,15 @@
 use std::cell::RefCell;
+use std::ops::Range;
 
 use comrak::arena_tree::Node;
 use comrak::nodes::Ast;
 use comrak::nodes::NodeValue::{
-    Code, CodeBlock, Document, Emph, Heading, LineBreak, Paragraph, Strong, Text,
+    Code, CodeBlock, Document, Emph, Heading, LineBreak, Link, Paragraph, Strong, Text,
 };
 use comrak::{Arena, Options, parse_document};
 use gpui::{
-    AnyElement, App, Font, FontFeatures, FontStyle, FontWeight, IntoElement, ParentElement, SharedString, Styled, StyledText, TextRun, div, green, px,
+    AnyElement, App, ElementId, Font, FontFeatures, FontStyle, FontWeight, InteractiveText,
+    IntoElement, ParentElement, SharedString, Styled, StyledText, TextRun, div,
 };
 use gpui_component::{ActiveTheme, Theme};
 
@@ -15,6 +17,7 @@ use gpui_component::{ActiveTheme, Theme};
 struct TextStyle {
     weight: FontWeight,
     style: FontStyle,
+    color: Option<gpui::Hsla>,
     background_color: Option<gpui::Hsla>,
     underline: Option<gpui::UnderlineStyle>,
     strikethrough: Option<gpui::StrikethroughStyle>,
@@ -80,8 +83,25 @@ fn render_node<'a>(node: &'a Node<'a, RefCell<Ast>>, cx: &App) -> AnyElement {
         Paragraph => {
             let mut text = String::new();
             let mut runs = vec![];
-            collect_segments(node, &mut text, &TextStyle::default(), &mut runs, theme);
-            StyledText::new(text).with_runs(runs).into_any_element()
+            let mut links = vec![];
+            collect_segments(
+                node,
+                &mut text,
+                &TextStyle::default(),
+                &mut runs,
+                &mut links,
+                theme,
+            );
+            let ranges: Vec<Range<usize>> = links.iter().map(|link| link.range.clone()).collect();
+            InteractiveText::new(
+                ElementId::Name(SharedString::from("md-paragraph")),
+                StyledText::new(text).with_runs(runs),
+            )
+            .on_click(ranges, move |index, _window, cx| {
+                let link = &links[index];
+                cx.open_url(&link.href);
+            })
+            .into_any_element()
         }
         Text(cow) => {
             let text = cow.as_ref().to_string();
@@ -121,6 +141,7 @@ fn collect_segments<'a>(
     text: &mut String,
     style: &TextStyle,
     runs: &mut Vec<TextRun>,
+    links: &mut Vec<LinkSpan>,
     theme: &Theme,
 ) {
     for child in node.children() {
@@ -137,7 +158,7 @@ fn collect_segments<'a>(
                         weight: style.weight,
                         style: style.style,
                     },
-                    color: theme.foreground,
+                    color: style.color.unwrap_or(theme.foreground),
                     background_color: style.background_color,
                     underline: style.underline,
                     strikethrough: style.strikethrough,
@@ -154,7 +175,7 @@ fn collect_segments<'a>(
                         weight: style.weight,
                         style: style.style,
                     },
-                    color: theme.foreground,
+                    color: style.color.unwrap_or(theme.foreground),
                     background_color: style.background_color,
                     underline: style.underline,
                     strikethrough: style.strikethrough,
@@ -163,12 +184,25 @@ fn collect_segments<'a>(
             Strong => {
                 let mut child_style = style.clone();
                 child_style.weight = FontWeight::BOLD;
-                collect_segments(child, text, &child_style, runs, theme);
+                collect_segments(child, text, &child_style, runs, links, theme);
             }
             Emph => {
                 let mut child_style = style.clone();
                 child_style.style = FontStyle::Italic;
-                collect_segments(child, text, &child_style, runs, theme);
+                collect_segments(child, text, &child_style, runs, links, theme);
+            }
+            Link(node_link) => {
+                let mut child_style = style.clone();
+                child_style.color = Some(theme.link);
+                let start = text.len();
+                collect_segments(child, text, &child_style, runs, links, theme);
+                let end = text.len();
+                if end > start {
+                    links.push(LinkSpan {
+                        range: Range { start, end },
+                        href: node_link.url.clone(),
+                    });
+                }
             }
             Code(node_code) => {
                 let s = &node_code.literal;
@@ -191,4 +225,9 @@ fn collect_segments<'a>(
             _ => {}
         }
     }
+}
+
+struct LinkSpan {
+    range: Range<usize>,
+    href: String,
 }

@@ -1,6 +1,6 @@
 use comrak_gpui::render_document;
 use gpui::{
-    AppContext, Context, Entity, ParentElement, Render, Styled, Subscription, Window, div, px, red,
+    AppContext, Context, Entity, ParentElement, Render, Styled, Subscription, Window, div, px,
 };
 use gpui_component::ActiveTheme;
 use gpui_component::input::{Input, InputState};
@@ -84,17 +84,12 @@ impl Render for EditorView {
                     ),
             )
             .child(
-                div()
-                    .flex_1()
-                    .w_0()
-                    .min_w_0()
-                    .overflow_hidden()
-                    .child(
-                        div()
-                            .size_full()
-                            .overflow_y_scrollbar()
-                            .child(render_document(content.as_ref(), cx)),
-                    ),
+                div().flex_1().w_0().min_w_0().overflow_hidden().child(
+                    div()
+                        .size_full()
+                        .overflow_y_scrollbar()
+                        .child(render_document(content.as_ref(), cx)),
+                ),
             )
     }
 }
