@@ -1,0 +1,40 @@
+# Maintainer: Mouhamad Al Mounayar <TODO@example.com>
+#
+# This PKGBUILD packages an already-built `oden` binary rather than compiling
+# from source, so it has no `build()` function and depends on nothing at
+# build time beyond the staged files below. @VERSION@ and @CARCH@ are
+# substituted by the release workflow before
+# makepkg runs; this file is not usable as-is.
+pkgname=oden
+pkgver=@VERSION@
+pkgrel=1
+pkgdesc="Your commands, snippets, and notes as a navigable knowledge graph"
+arch=('@CARCH@')
+url="https://github.com/out-of-order/oden"
+# TODO(license): see packaging/linux/com.outoforder.oden.metainfo.xml
+license=('GNU GPL V3')
+depends=(
+  'fontconfig'
+  'libxkbcommon'
+  'vulkan-icd-loader'
+  'wayland'
+  'libxcb'
+)
+options=('!strip' '!debug')
+source=(
+  "oden"
+  "com.outoforder.oden.desktop"
+  "com.outoforder.oden.metainfo.xml"
+  "icon.png"
+)
+sha256sums=('SKIP' 'SKIP' 'SKIP' 'SKIP')
+
+package() {
+  install -Dm755 "${srcdir}/oden" "${pkgdir}/usr/bin/oden"
+  install -Dm644 "${srcdir}/com.outoforder.oden.desktop" \
+    "${pkgdir}/usr/share/applications/com.outoforder.oden.desktop"
+  install -Dm644 "${srcdir}/com.outoforder.oden.metainfo.xml" \
+    "${pkgdir}/usr/share/metainfo/com.outoforder.oden.metainfo.xml"
+  install -Dm644 "${srcdir}/icon.png" \
+    "${pkgdir}/usr/share/icons/hicolor/512x512/apps/com.outoforder.oden.png"
+}

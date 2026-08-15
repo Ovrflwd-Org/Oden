@@ -1,0 +1,30 @@
+app-id: com.outoforder.oden
+runtime: org.freedesktop.Platform
+runtime-version: "24.08"
+sdk: org.freedesktop.Sdk
+command: oden
+
+finish-args:
+  - --socket=wayland
+  - --socket=fallback-x11
+  - --share=ipc
+  - --share=network
+  - --device=dri
+
+modules:
+  - name: oden
+    buildsystem: simple
+    build-commands:
+      - install -Dm755 oden /app/bin/oden
+      - install -Dm644 com.outoforder.oden.desktop /app/share/applications/com.outoforder.oden.desktop
+      - install -Dm644 com.outoforder.oden.metainfo.xml /app/share/metainfo/com.outoforder.oden.metainfo.xml
+      - install -Dm644 icon.png /app/share/icons/hicolor/512x512/apps/com.outoforder.oden.png
+    sources:
+      - type: file
+        path: oden
+      - type: file
+        path: com.outoforder.oden.desktop
+      - type: file
+        path: com.outoforder.oden.metainfo.xml
+      - type: file
+        path: icon.png

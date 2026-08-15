@@ -51,14 +51,22 @@ impl ItemRepository {
 
 #[async_trait]
 impl ItemRepositoryTrait for ItemRepository {
+    #[tracing::instrument(skip(self))]
     async fn find_all(&self) -> Result<Vec<item::Model>, DbErr> {
-        item::Entity::find().all(&self.db).await
+        let result = item::Entity::find().all(&self.db).await;
+        match &result {
+            Ok(items) => tracing::debug!(count = items.len(), "find_all succeeded"),
+            Err(err) => tracing::error!(error = ?err, "find_all failed"),
+        }
+        result
     }
 
+    #[tracing::instrument(skip(self))]
     async fn create_item(&self) -> Result<item::Model, DbErr> {
         let now = Utc::now();
+        let id = Uuid::new_v4();
         let item_instance = item::ActiveModel {
-            id: Set(Uuid::new_v4()),
+            id: Set(id),
             name: Set("Untitled".to_string()),
             content: Set("# Untitled".to_string()),
             kind: Set(item::ItemKind::Note),
@@ -67,6 +75,10 @@ impl ItemRepositoryTrait for ItemRepository {
             created_at: Set(now),
             modified_at: Set(now),
         };
-        item_instance.insert(&self.db).await
+        let result = item_instance.insert(&self.db).await;
+        if let Err(err) = &result {
+            tracing::error!(error = ?err, item_id = %id, "create_item failed");
+        }
+        result
     }
 }

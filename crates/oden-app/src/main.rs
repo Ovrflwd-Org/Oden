@@ -31,16 +31,21 @@ impl AssetSource for Assets {
     }
 }
 
+use crate::app_settings::AppSettingsState;
 use crate::repository::AppRepository;
 use crate::state::{AppMode, SelectedIdState};
+use crate::updater::UpdateState;
 use crate::{root::AppRoot, store::ItemStore};
 use oden_core::db::setup_database;
 
+mod about;
 mod actions;
+mod app_settings;
 mod appstatus;
 #[cfg(debug_assertions)]
 mod fixtures;
 mod icons;
+mod logging;
 mod models;
 mod repository;
 mod root;
@@ -48,48 +53,71 @@ mod state;
 mod store;
 #[cfg(test)]
 mod testutils;
+mod updater;
 mod views;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
+    let _log_guard = logging::init();
+    tracing::info!(version = env!("CARGO_PKG_VERSION"), "starting oden");
+
     let db = setup_database().await?;
     Application::new().with_assets(Assets).run(|cx: &mut App| {
         let _ = cx.text_system().add_fonts(vec![Cow::Borrowed(
             include_bytes!("../assets/JetBrainsMonoNerdFont-Regular.ttf").as_slice(),
         )]);
         gpui_component::init(cx);
+        AppSettingsState::init(cx);
+        UpdateState::init(cx);
+        about::AboutState::init(cx);
         setup_theme(cx);
+        let mut titlebar_options = TitleBar::title_bar_options();
+        titlebar_options.title = Some(SharedString::from("Oden"));
         let window_options = WindowOptions {
-            titlebar: Some(TitleBar::title_bar_options()),
+            titlebar: Some(titlebar_options),
+            app_id: Some("com.outoforder.oden".to_string()),
             ..Default::default()
         };
         cx.spawn(async move |cx| {
             let repository = Arc::new(ItemRepository::new(db));
             if let Err(err) = ItemStore::init(cx, &repository).await {
-                eprintln!("failed to initialize ItemStore: {err:?}");
+                tracing::error!(error = ?err, "failed to initialize ItemStore");
                 return;
             }
             AppRepository::init(cx, repository);
-            cx.open_window(window_options, |window, cx| {
-                let app_mode: Entity<AppMode> = cx.new(|_| AppMode::List);
-                let selected_id_state: Entity<SelectedIdState> =
-                    cx.new(|_| SelectedIdState::init());
-                let view = cx.new(|cx| AppRoot::new(app_mode, selected_id_state, window, cx));
-                cx.new(|cx| Root::new(view, window, cx))
-            })
-            .unwrap();
+            let window = cx
+                .open_window(window_options, |window, cx| {
+                    let app_mode: Entity<AppMode> = cx.new(|_| AppMode::List);
+                    let selected_id_state: Entity<SelectedIdState> =
+                        cx.new(|_| SelectedIdState::init());
+                    let view = cx.new(|cx| AppRoot::new(app_mode, selected_id_state, window, cx));
+                    cx.new(|cx| Root::new(view, window, cx))
+                })
+                .unwrap();
+            tracing::info!("main window opened");
+            let _ = cx.update(|cx| {
+                if AppSettingsState::get(cx).check_for_updates {
+                    updater::check_for_updates(cx);
+                }
+                updater::show_whats_new_if_updated(window, cx);
+            });
         })
         .detach();
     });
     Ok(())
 }
 
+pub(crate) fn apply_theme(theme_name: &str, cx: &mut App) {
+    let theme_name = SharedString::from(theme_name.to_string());
+    if let Some(theme) = ThemeRegistry::global(cx).themes().get(&theme_name).cloned() {
+        Theme::global_mut(cx).apply_config(&theme);
+    }
+}
+
 fn setup_theme(cx: &mut App) {
-    let theme_name = SharedString::from("Gruvbox Dark");
-    if let Err(err) = ThemeRegistry::watch_dir(PathBuf::from("./themes"), cx, move |cx| {
-        if let Some(theme) = ThemeRegistry::global(cx).themes().get(&theme_name).cloned() {
-            Theme::global_mut(cx).apply_config(&theme);
-        }
+    if let Err(err) = ThemeRegistry::watch_dir(PathBuf::from("./themes"), cx, |cx| {
+        let theme_name = AppSettingsState::get(cx).theme.clone();
+        apply_theme(&theme_name, cx);
     }) {
-        println!("there was an error loading the theme {:?}", err)
+        tracing::warn!(error = ?err, "failed to watch themes directory");
     }
 }

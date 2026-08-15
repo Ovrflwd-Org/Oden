@@ -2,7 +2,8 @@
 
 use gpui::{
     AnyElement, AppContext, Context, Entity, FocusHandle, InteractiveElement, IntoElement,
-    ParentElement, Render, SharedString, Styled, Subscription, div, px,
+    ParentElement, Render, SharedString, Styled, Subscription, div, prelude::FluentBuilder as _,
+    px,
 };
 use gpui_component::{
     ActiveTheme, Icon,
@@ -17,7 +18,8 @@ use crate::{
     appstatus::AppStatus,
     icons::IconName,
     state::{AppMode, SelectedIdState},
-    views::{list::ListView, titlebar::Titlebar},
+    updater::{UpdateState, UpdateStatus},
+    views::{list::ListView, settings::SettingsView, titlebar::Titlebar},
 };
 
 const APP_VERSION: &str = concat!("v", env!("CARGO_PKG_VERSION"));
@@ -29,8 +31,10 @@ pub struct AppRoot {
     pub(crate) list_view: Entity<ListView>,
     #[cfg(debug_assertions)]
     pub(crate) graph_view: Entity<GraphView>,
+    pub(crate) settings_view: Entity<SettingsView>,
     pub(crate) focus: FocusHandle,
     pub(crate) _state_sub: Subscription,
+    pub(crate) _update_sub: Subscription,
 }
 
 impl AppRoot {
@@ -45,6 +49,7 @@ impl AppRoot {
             _state_sub: cx.observe(&app_mode, |_, _, cx| {
                 cx.notify();
             }),
+            _update_sub: cx.observe_global::<UpdateState>(|_, cx| cx.notify()),
             app_mode: app_mode.clone(),
             list_view: cx.new(|cx| {
                 ListView::new(
@@ -57,6 +62,7 @@ impl AppRoot {
             }),
             #[cfg(debug_assertions)]
             graph_view: cx.new(|_| GraphView::new()),
+            settings_view: cx.new(SettingsView::new),
             titlebar: cx.new(|cx| Titlebar::new(cx, window, status_entity)),
             selected_id_state,
             focus: cx.focus_handle(),
@@ -84,6 +90,11 @@ impl AppRoot {
         let border_color = cx.theme().border;
         let sidebar_bg = cx.theme().sidebar;
         let muted_color = cx.theme().muted_foreground;
+        let update_badge_color = cx.theme().red;
+        let update_available = matches!(
+            UpdateState::get(cx).status,
+            UpdateStatus::Available { .. } | UpdateStatus::Installed { .. }
+        );
 
         let icon_rail = vec![
             self.nav_button(IconName::List, AppMode::List, "List Mode"),
@@ -128,13 +139,30 @@ impl AppRoot {
                             .text_size(px(14.)),
                     )
                     .child(
-                        Button::new("settings")
-                            .ghost()
-                            .tooltip("Settings")
-                            .icon(Icon::new(IconName::Settings))
-                            .on_click(move |_event, window, cx| {
-                                focus.focus(window);
-                                window.dispatch_action(Box::new(actions::Settings), cx)
+                        div()
+                            .relative()
+                            .child(
+                                Button::new("settings")
+                                    .ghost()
+                                    .tooltip("Settings")
+                                    .icon(Icon::new(IconName::Settings))
+                                    .on_click(move |_event, window, cx| {
+                                        focus.focus(window);
+                                        window.dispatch_action(Box::new(actions::Settings), cx)
+                                    }),
+                            )
+                            .when(update_available, |this| {
+                                this.child(
+                                    div()
+                                        .absolute()
+                                        .top_0()
+                                        .right_0()
+                                        .size(px(8.0))
+                                        .rounded_full()
+                                        .bg(update_badge_color)
+                                        .border(px(1.0))
+                                        .border_color(sidebar_bg),
+                                )
                             }),
                     ),
             )
@@ -162,7 +190,7 @@ impl AppRoot {
 impl Render for AppRoot {
     fn render(
         &mut self,
-        _window: &mut gpui::Window,
+        window: &mut gpui::Window,
         cx: &mut gpui::Context<Self>,
     ) -> impl gpui::IntoElement {
         let bg = cx.theme().background;
@@ -203,6 +231,9 @@ impl Render for AppRoot {
                     .child(sidebar)
                     .child(self.render_mode(*mode)),
             )
+            .children(gpui_component::Root::render_dialog_layer(window, cx))
+            .children(gpui_component::Root::render_sheet_layer(window, cx))
+            .children(gpui_component::Root::render_notification_layer(window, cx))
     }
 }
 
@@ -210,6 +241,7 @@ impl AppRoot {
     fn render_mode(&self, mode: AppMode) -> AnyElement {
         match mode {
             AppMode::List => self.list_view.clone().into_any_element(),
+            AppMode::Settings => self.settings_view.clone().into_any_element(),
             AppMode::Graph => {
                 #[cfg(debug_assertions)]
                 return self.graph_view.clone().into_any_element();

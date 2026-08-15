@@ -1,0 +1,1033 @@
+name: release
+
+on:
+  push:
+    branches: [main]
+    tags: ["oden-v*"]
+  workflow_dispatch:
+    inputs:
+      tag:
+        description: "Release tag to build (e.g. oden-v1.2.3). Leave empty to auto-compute the next version from Conventional Commits since the last oden-v* tag. Only meaningful for a full release (every box below left checked)."
+        required: false
+        type: string
+      target_windows_x64:
+        description: "Target: Windows x64"
+        required: false
+        default: true
+        type: boolean
+      target_windows_arm64:
+        description: "Target: Windows arm64"
+        required: false
+        default: true
+        type: boolean
+      target_macos_arm64:
+        description: "Target: macOS arm64 (Apple Silicon)"
+        required: false
+        default: true
+        type: boolean
+      target_linux_x64:
+        description: "Target: Linux x64"
+        required: false
+        default: true
+        type: boolean
+      target_linux_arm64:
+        description: "Target: Linux arm64"
+        required: false
+        default: true
+        type: boolean
+      bundler_windows:
+        description: "Bundler: Windows (zip + NSIS installer)"
+        required: false
+        default: true
+        type: boolean
+      bundler_macos:
+        description: "Bundler: macOS (dmg + pkg)"
+        required: false
+        default: true
+        type: boolean
+      bundler_appimage:
+        description: "Bundler: Linux AppImage"
+        required: false
+        default: true
+        type: boolean
+      bundler_deb:
+        description: "Bundler: Linux deb"
+        required: false
+        default: true
+        type: boolean
+      bundler_rpm:
+        description: "Bundler: Linux rpm"
+        required: false
+        default: true
+        type: boolean
+      bundler_arch:
+        description: "Bundler: Linux Arch pkg"
+        required: false
+        default: true
+        type: boolean
+      bundler_flatpak:
+        description: "Bundler: Linux Flatpak"
+        required: false
+        default: true
+        type: boolean
+      bundler_snap:
+        description: "Bundler: Linux Snap"
+        required: false
+        default: true
+        type: boolean
+
+env:
+  CARGO_TERM_COLOR: always
+  APP_NAME: oden
+
+permissions:
+  contents: read
+
+jobs:
+  version:
+    name: Resolve version and build plan
+    runs-on: ubuntu-latest
+    outputs:
+      version: ${{ steps.version.outputs.version }}
+      tag: ${{ steps.version.outputs.tag }}
+      checkout_ref: ${{ steps.version.outputs.checkout_ref }}
+      build_needed: ${{ steps.version.outputs.build_needed }}
+      full_release: ${{ steps.version.outputs.full_release }}
+      changelog: ${{ steps.changelog.outputs.changelog }}
+      build_targets: ${{ steps.plan.outputs.build_targets }}
+      windows_targets: ${{ steps.plan.outputs.windows_targets }}
+      run_macos: ${{ steps.plan.outputs.run_macos }}
+      appimage_targets: ${{ steps.plan.outputs.appimage_targets }}
+      deb_targets: ${{ steps.plan.outputs.deb_targets }}
+      rpm_targets: ${{ steps.plan.outputs.rpm_targets }}
+      arch_targets: ${{ steps.plan.outputs.arch_targets }}
+      flatpak_targets: ${{ steps.plan.outputs.flatpak_targets }}
+      snap_targets: ${{ steps.plan.outputs.snap_targets }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - id: version
+        run: |
+          set -euo pipefail
+          input_tag="${{ github.event.inputs.tag }}"
+
+          # Each checkbox arrives as "true"/"false" on a dispatch, or empty
+          # on any other trigger (push to main, tag push) - treat empty as
+          # checked so those triggers behave like "everything selected".
+          is_checked() { [ -z "$1" ] || [ "$1" = "true" ]; }
+
+          t_win_x64="${{ github.event.inputs.target_windows_x64 }}"
+          t_win_arm64="${{ github.event.inputs.target_windows_arm64 }}"
+          t_macos_arm64="${{ github.event.inputs.target_macos_arm64 }}"
+          t_linux_x64="${{ github.event.inputs.target_linux_x64 }}"
+          t_linux_arm64="${{ github.event.inputs.target_linux_arm64 }}"
+          b_windows="${{ github.event.inputs.bundler_windows }}"
+          b_macos="${{ github.event.inputs.bundler_macos }}"
+          b_appimage="${{ github.event.inputs.bundler_appimage }}"
+          b_deb="${{ github.event.inputs.bundler_deb }}"
+          b_rpm="${{ github.event.inputs.bundler_rpm }}"
+          b_arch="${{ github.event.inputs.bundler_arch }}"
+          b_flatpak="${{ github.event.inputs.bundler_flatpak }}"
+          b_snap="${{ github.event.inputs.bundler_snap }}"
+
+          all_selected=true
+          for v in "$t_win_x64" "$t_win_arm64" "$t_macos_arm64" "$t_linux_x64" "$t_linux_arm64" \
+                   "$b_windows" "$b_macos" "$b_appimage" "$b_deb" "$b_rpm" "$b_arch" "$b_flatpak" "$b_snap"; do
+            is_checked "$v" || all_selected=false
+          done
+
+          selected_targets=""
+          is_checked "$t_win_x64" && selected_targets="$selected_targets windows-x64"
+          is_checked "$t_win_arm64" && selected_targets="$selected_targets windows-arm64"
+          is_checked "$t_macos_arm64" && selected_targets="$selected_targets macos-arm64"
+          is_checked "$t_linux_x64" && selected_targets="$selected_targets linux-x64"
+          is_checked "$t_linux_arm64" && selected_targets="$selected_targets linux-arm64"
+
+          selected_bundlers=""
+          is_checked "$b_windows" && selected_bundlers="$selected_bundlers windows"
+          is_checked "$b_macos" && selected_bundlers="$selected_bundlers macos"
+          is_checked "$b_appimage" && selected_bundlers="$selected_bundlers appimage"
+          is_checked "$b_deb" && selected_bundlers="$selected_bundlers deb"
+          is_checked "$b_rpm" && selected_bundlers="$selected_bundlers rpm"
+          is_checked "$b_arch" && selected_bundlers="$selected_bundlers arch"
+          is_checked "$b_flatpak" && selected_bundlers="$selected_bundlers flatpak"
+          is_checked "$b_snap" && selected_bundlers="$selected_bundlers snap"
+
+          targets_input="$(echo "$selected_targets" | xargs)"
+          bundlers_input="$(echo "$selected_bundlers" | xargs)"
+
+          is_tag_push=false
+          if [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF_TYPE}" = "tag" ]; then
+            is_tag_push=true
+          fi
+          is_main_push=false
+          if [ "${GITHUB_EVENT_NAME}" = "push" ] && [ "${GITHUB_REF_TYPE}" = "branch" ] && [ "${GITHUB_REF_NAME}" = "main" ]; then
+            is_main_push=true
+          fi
+
+          full_release=false
+          if [ "$is_tag_push" = "true" ] || [ "$is_main_push" = "true" ]; then
+            full_release=true
+          elif [ "${GITHUB_EVENT_NAME}" = "workflow_dispatch" ] && [ "$all_selected" = "true" ]; then
+            full_release=true
+          fi
+
+          last_tag="$(git tag --list 'oden-v*' --sort=-v:refname | head -n1)"
+
+          if [ -n "$input_tag" ]; then
+            tag="$input_tag"
+          elif [ "$is_tag_push" = "true" ]; then
+            tag="${GITHUB_REF_NAME}"
+          else
+            if [ -z "$last_tag" ]; then
+              last_version="0.0.0"
+              range=""
+            else
+              last_version="${last_tag#oden-v}"
+              range="${last_tag}..HEAD"
+            fi
+
+            log="$(git log ${range} --pretty=format:'%s%n%b' -- crates Cargo.toml || true)"
+
+            bump="none"
+            if echo "$log" | grep -qE '^[a-zA-Z]+(\([^)]*\))?!:|^BREAKING CHANGE:'; then
+              bump="major"
+            elif echo "$log" | grep -qE '^feat(\([^)]*\))?:'; then
+              bump="minor"
+            elif echo "$log" | grep -qE '^fix(\([^)]*\))?:'; then
+              bump="patch"
+            fi
+
+            if [ "$bump" = "none" ]; then
+              if [ "$full_release" = "true" ]; then
+                echo "::notice::no releasable commits since ${last_tag:-the beginning of history}, skipping release"
+                echo "build_needed=false" >> "$GITHUB_OUTPUT"
+                echo "full_release=false" >> "$GITHUB_OUTPUT"
+                exit 0
+              fi
+              bump="patch"
+            fi
+
+            IFS='.' read -r major minor patch <<< "$last_version"
+            case "$bump" in
+              major) major=$((major + 1)); minor=0; patch=0 ;;
+              minor) minor=$((minor + 1)); patch=0 ;;
+              patch) patch=$((patch + 1)) ;;
+            esac
+            tag="oden-v${major}.${minor}.${patch}"
+          fi
+
+          if [[ ! "$tag" =~ ^oden-v[0-9]+\.[0-9]+\.[0-9]+$ ]]; then
+            echo "::error::tag '$tag' does not match required format oden-vX.Y.Z"
+            exit 1
+          fi
+
+          checkout_ref=""
+          if [ "$full_release" = "true" ]; then
+            checkout_ref="$tag"
+          fi
+
+          echo "build_needed=true" >> "$GITHUB_OUTPUT"
+          echo "full_release=${full_release}" >> "$GITHUB_OUTPUT"
+          echo "tag=${tag}" >> "$GITHUB_OUTPUT"
+          echo "version=${tag#oden-v}" >> "$GITHUB_OUTPUT"
+          echo "checkout_ref=${checkout_ref}" >> "$GITHUB_OUTPUT"
+          echo "targets_input=${targets_input}" >> "$GITHUB_OUTPUT"
+          echo "bundlers_input=${bundlers_input}" >> "$GITHUB_OUTPUT"
+          echo "last_tag=${last_tag}" >> "$GITHUB_OUTPUT"
+
+      - id: changelog
+        if: steps.version.outputs.build_needed == 'true'
+        run: |
+          set -euo pipefail
+          rustc --edition 2021 -O -o /tmp/generate-changelog scripts/generate_changelog.rs
+          {
+            echo "changelog<<CHANGELOG_EOF_${GITHUB_RUN_ID}"
+            /tmp/generate-changelog \
+              --repo "${{ github.repository }}" \
+              --from "${{ steps.version.outputs.last_tag }}" \
+              --to HEAD
+            echo "CHANGELOG_EOF_${GITHUB_RUN_ID}"
+          } >> "$GITHUB_OUTPUT"
+
+      - id: plan
+        run: |
+          set -euo pipefail
+          if [ "${{ steps.version.outputs.build_needed }}" != "true" ]; then
+            echo "build_targets=[]" >> "$GITHUB_OUTPUT"
+            echo "windows_targets=[]" >> "$GITHUB_OUTPUT"
+            echo "run_macos=false" >> "$GITHUB_OUTPUT"
+            echo "appimage_targets=[]" >> "$GITHUB_OUTPUT"
+            echo "deb_targets=[]" >> "$GITHUB_OUTPUT"
+            echo "rpm_targets=[]" >> "$GITHUB_OUTPUT"
+            echo "arch_targets=[]" >> "$GITHUB_OUTPUT"
+            echo "flatpak_targets=[]" >> "$GITHUB_OUTPUT"
+            echo "snap_targets=[]" >> "$GITHUB_OUTPUT"
+            exit 0
+          fi
+
+          selected_targets="${{ steps.version.outputs.targets_input }}"
+          selected_bundlers="${{ steps.version.outputs.bundlers_input }}"
+
+          ALL_TARGETS='
+          windows-x64|x86_64-pc-windows-msvc|windows-latest|false
+          windows-arm64|aarch64-pc-windows-msvc|windows-latest|true
+          macos-arm64|aarch64-apple-darwin|macos-14|false
+          linux-x64|x86_64-unknown-linux-gnu|ubuntu-latest|false
+          linux-arm64|aarch64-unknown-linux-gnu|ubuntu-latest|true
+          '
+
+          is_selected_target() {
+            for t in $selected_targets; do [ "$t" = "$1" ] && return 0; done
+            return 1
+          }
+          is_selected_bundler() {
+            for b in $selected_bundlers; do [ "$b" = "$1" ] && return 0; done
+            return 1
+          }
+
+          build_matrix="[]"
+          while IFS='|' read -r alias triple os cross; do
+            [ -z "$alias" ] && continue
+            if is_selected_target "$alias"; then
+              build_matrix="$(echo "$build_matrix" | jq -c --arg t "$triple" --arg o "$os" --argjson c "$cross" '. + [{target:$t, os:$o, cross:$c}]')"
+            fi
+          done <<< "$ALL_TARGETS"
+          echo "build_targets=$(echo "$build_matrix" | jq -c .)" >> "$GITHUB_OUTPUT"
+
+          windows_matrix="[]"
+          if is_selected_bundler windows; then
+            is_selected_target windows-x64 && windows_matrix="$(echo "$windows_matrix" | jq -c '. + [{target:"x86_64-pc-windows-msvc", nsis_arch:"x64"}]')"
+            is_selected_target windows-arm64 && windows_matrix="$(echo "$windows_matrix" | jq -c '. + [{target:"aarch64-pc-windows-msvc", nsis_arch:"arm64"}]')"
+          fi
+          echo "windows_targets=$(echo "$windows_matrix" | jq -c .)" >> "$GITHUB_OUTPUT"
+
+          run_macos=false
+          if is_selected_bundler macos && is_selected_target macos-arm64; then
+            run_macos=true
+          fi
+          echo "run_macos=${run_macos}" >> "$GITHUB_OUTPUT"
+
+          appimage_matrix="[]"
+          if is_selected_bundler appimage; then
+            is_selected_target linux-x64 && appimage_matrix="$(echo "$appimage_matrix" | jq -c '. + [{target:"x86_64-unknown-linux-gnu", arch:"x86_64", arch_alias:"x64"}]')"
+            is_selected_target linux-arm64 && appimage_matrix="$(echo "$appimage_matrix" | jq -c '. + [{target:"aarch64-unknown-linux-gnu", arch:"aarch64", arch_alias:"arm64"}]')"
+          fi
+          echo "appimage_targets=$(echo "$appimage_matrix" | jq -c .)" >> "$GITHUB_OUTPUT"
+
+          deb_matrix="[]"
+          if is_selected_bundler deb; then
+            is_selected_target linux-x64 && deb_matrix="$(echo "$deb_matrix" | jq -c '. + [{target:"x86_64-unknown-linux-gnu", deb_arch:"amd64", arch_alias:"x64"}]')"
+            is_selected_target linux-arm64 && deb_matrix="$(echo "$deb_matrix" | jq -c '. + [{target:"aarch64-unknown-linux-gnu", deb_arch:"arm64", arch_alias:"arm64"}]')"
+          fi
+          echo "deb_targets=$(echo "$deb_matrix" | jq -c .)" >> "$GITHUB_OUTPUT"
+
+          rpm_matrix="[]"
+          if is_selected_bundler rpm; then
+            is_selected_target linux-x64 && rpm_matrix="$(echo "$rpm_matrix" | jq -c '. + [{target:"x86_64-unknown-linux-gnu", rpm_arch:"x86_64", arch_alias:"x64"}]')"
+            is_selected_target linux-arm64 && rpm_matrix="$(echo "$rpm_matrix" | jq -c '. + [{target:"aarch64-unknown-linux-gnu", rpm_arch:"aarch64", arch_alias:"arm64"}]')"
+          fi
+          echo "rpm_targets=$(echo "$rpm_matrix" | jq -c .)" >> "$GITHUB_OUTPUT"
+
+          arch_matrix="[]"
+          if is_selected_bundler arch; then
+            is_selected_target linux-x64 && arch_matrix="$(echo "$arch_matrix" | jq -c '. + [{target:"x86_64-unknown-linux-gnu", arch:"x86_64", arch_alias:"x64", platform:"linux/amd64", image:"archlinux:latest"}]')"
+            is_selected_target linux-arm64 && arch_matrix="$(echo "$arch_matrix" | jq -c '. + [{target:"aarch64-unknown-linux-gnu", arch:"aarch64", arch_alias:"arm64", platform:"linux/arm64", image:"menci/archlinuxarm:base"}]')"
+          fi
+          echo "arch_targets=$(echo "$arch_matrix" | jq -c .)" >> "$GITHUB_OUTPUT"
+
+          flatpak_matrix="[]"
+          if is_selected_bundler flatpak; then
+            is_selected_target linux-x64 && flatpak_matrix="$(echo "$flatpak_matrix" | jq -c '. + [{target:"x86_64-unknown-linux-gnu", arch:"x86_64", arch_alias:"x64"}]')"
+            is_selected_target linux-arm64 && flatpak_matrix="$(echo "$flatpak_matrix" | jq -c '. + [{target:"aarch64-unknown-linux-gnu", arch:"aarch64", arch_alias:"arm64"}]')"
+          fi
+          echo "flatpak_targets=$(echo "$flatpak_matrix" | jq -c .)" >> "$GITHUB_OUTPUT"
+
+          snap_matrix="[]"
+          if is_selected_bundler snap; then
+            is_selected_target linux-x64 && snap_matrix="$(echo "$snap_matrix" | jq -c '. + [{target:"x86_64-unknown-linux-gnu", snap_arch:"amd64", arch_alias:"x64"}]')"
+            is_selected_target linux-arm64 && snap_matrix="$(echo "$snap_matrix" | jq -c '. + [{target:"aarch64-unknown-linux-gnu", snap_arch:"arm64", arch_alias:"arm64"}]')"
+          fi
+          echo "snap_targets=$(echo "$snap_matrix" | jq -c .)" >> "$GITHUB_OUTPUT"
+
+  ensure-tag:
+    name: Ensure release tag exists
+    needs: version
+    if: needs.version.outputs.build_needed == 'true'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          fetch-depth: 0
+
+      - name: Bump crates/oden-app version, commit, tag and push
+        if: needs.version.outputs.full_release == 'true' && github.ref_type != 'tag'
+        run: |
+          set -euo pipefail
+          tag="${{ needs.version.outputs.tag }}"
+          version="${{ needs.version.outputs.version }}"
+
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "tag $tag already exists, leaving it and its Cargo.toml as-is"
+            exit 0
+          fi
+
+          current_version="$(awk -F'"' '/^\[package\]/{p=1} p && /^version[[:space:]]*=/{print $2; exit}' crates/oden-app/Cargo.toml)"
+          if [ "$current_version" != "$version" ]; then
+            awk -v ver="$version" '
+              /^\[package\]/ { inpkg=1 }
+              /^\[/ && !/^\[package\]/ { inpkg=0 }
+              inpkg && /^version[[:space:]]*=/ && !done { print "version = \"" ver "\""; done=1; next }
+              { print }
+            ' crates/oden-app/Cargo.toml > crates/oden-app/Cargo.toml.new
+            mv crates/oden-app/Cargo.toml.new crates/oden-app/Cargo.toml
+
+            git config user.name "github-actions[bot]"
+            git config user.email "github-actions[bot]@users.noreply.github.com"
+            git add crates/oden-app/Cargo.toml
+            git commit -m "chore(release): oden v${version}"
+            git push origin "HEAD:${GITHUB_REF}"
+          fi
+
+          git tag "$tag" HEAD
+          git push origin "$tag"
+
+      - name: Create and push tag if missing (tag-push trigger)
+        if: needs.version.outputs.full_release == 'true' && github.ref_type == 'tag'
+        run: |
+          tag="${{ needs.version.outputs.tag }}"
+          if git rev-parse -q --verify "refs/tags/$tag" >/dev/null; then
+            echo "tag $tag already exists"
+          else
+            git tag "$tag" "${{ github.sha }}"
+            git push origin "$tag"
+          fi
+
+  # Build the raw binary once per selected target. Every packaging job below
+  # wraps one of these prebuilt binaries instead of recompiling Rust, so
+  # Flatpak / Snap / deb / rpm / Arch builds stay fast and don't need to
+  # vendor Cargo dependencies for sandboxed/offline builds.
+  build:
+    name: Build (${{ matrix.target }})
+    needs: [version, ensure-tag]
+    if: needs.version.outputs.build_needed == 'true'
+    runs-on: ${{ matrix.os }}
+    strategy:
+      fail-fast: false
+      matrix:
+        include: ${{ fromJSON(needs.version.outputs.build_targets) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.checkout_ref }}
+
+      - name: Install system dependencies (Linux native)
+        if: matrix.os == 'ubuntu-latest' && matrix.cross == false
+        run: |
+          sudo apt-get update && sudo apt-get install -y \
+            libssl-dev pkg-config \
+            libxcb-shape0-dev libxcb-xfixes0-dev \
+            libxkbcommon-dev libxkbcommon-x11-dev libvulkan-dev \
+            libgl1-mesa-dev libegl1-mesa-dev \
+            libfontconfig1-dev libwayland-dev
+
+      # Windows arm64 cross toolset
+      - name: Install MSVC ARM64 toolset
+        if: matrix.target == 'aarch64-pc-windows-msvc'
+        shell: pwsh
+        run: |
+          $vswhere = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vswhere.exe"
+          $installPath = & $vswhere -latest -products * -property installationPath
+          if (-not $installPath) {
+            throw "Could not locate a Visual Studio installation via vswhere"
+          }
+          $installer = "${env:ProgramFiles(x86)}\Microsoft Visual Studio\Installer\vs_installer.exe"
+          & $installer modify --installPath "$installPath" `
+            --add Microsoft.VisualStudio.Component.VC.Tools.ARM64 `
+            --quiet --norestart --wait
+          if ($LASTEXITCODE -ne 0 -and $LASTEXITCODE -ne 3010) {
+            throw "vs_installer exited with code $LASTEXITCODE"
+          }
+
+      - uses: dtolnay/rust-toolchain@stable
+        if: matrix.cross == false || matrix.target == 'aarch64-pc-windows-msvc'
+        with:
+          targets: ${{ matrix.target }}
+
+      - uses: Swatinem/rust-cache@v2
+        if: matrix.cross == false || matrix.target == 'aarch64-pc-windows-msvc'
+        with:
+          key: ${{ matrix.target }}
+
+      - name: Build (native)
+        if: matrix.cross == false
+        run: cargo build --release --target ${{ matrix.target }} -p oden
+
+      - name: Build (Windows arm64, MSVC cross)
+        if: matrix.target == 'aarch64-pc-windows-msvc'
+        run: cargo build --release --target ${{ matrix.target }} -p oden
+
+      # Linux aarch64 cross build via cross-rs
+      - name: Install cross
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: cargo install cross --git https://github.com/cross-rs/cross
+
+      - name: Build cross-compilation image
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: docker build -t cross-aarch64-linux:local -f docker/cross-aarch64-linux.Dockerfile .
+
+      - name: Build (Linux aarch64, cross)
+        if: matrix.target == 'aarch64-unknown-linux-gnu'
+        run: cross build --release --target ${{ matrix.target }} -p oden
+
+      - name: Stage binary (unix)
+        if: runner.os != 'Windows'
+        run: |
+          mkdir -p staging
+          cp target/${{ matrix.target }}/release/${APP_NAME} staging/${APP_NAME}
+
+      - name: Stage binary (windows)
+        if: runner.os == 'Windows'
+        shell: pwsh
+        run: |
+          New-Item -ItemType Directory -Force staging | Out-Null
+          Copy-Item "target\${{ matrix.target }}\release\${env:APP_NAME}.exe" "staging\${env:APP_NAME}.exe"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: bin-${{ matrix.target }}
+          path: staging/*
+          if-no-files-found: error
+
+  # Windows: a zip of the raw exe (this is also the asset the in-app
+  # self-updater consumes for the portable Windows channel; its name must
+  # match the oden-win-<arch>_<version>.zip scheme self_update_asset_hint()
+  # in updater.rs expects), plus an NSIS-built Setup.exe installer for
+  # people who'd rather have Start Menu shortcuts and a proper uninstaller.
+  package-windows:
+    name: Package (${{ matrix.target }})
+    needs: [version, build]
+    if: needs.version.outputs.windows_targets != '[]'
+    runs-on: windows-latest
+    strategy:
+      matrix:
+        include: ${{ fromJSON(needs.version.outputs.windows_targets) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.checkout_ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-${{ matrix.target }}
+          path: staging
+
+      - name: Zip
+        shell: pwsh
+        run: |
+          $out = "oden-win-${{ matrix.nsis_arch }}_${{ needs.version.outputs.version }}.zip"
+          Compress-Archive -Path "staging\oden.exe" -DestinationPath $out
+          New-Item -ItemType Directory -Force dist | Out-Null
+          Move-Item $out "dist\$out"
+
+      - name: Install NSIS
+        run: choco install nsis -y --no-progress
+
+      - name: Build NSIS installer
+        shell: pwsh
+        run: |
+          $out = "dist\oden-win-${{ matrix.nsis_arch }}_${{ needs.version.outputs.version }}.exe"
+          & "${env:ProgramFiles(x86)}\NSIS\makensis.exe" `
+            "/DVERSION=${{ needs.version.outputs.version }}" `
+            "/DARCH=${{ matrix.nsis_arch }}" `
+            "/DSRCDIR=$PWD\staging" `
+            "/DICONPATH=$PWD\crates\oden-app\assets\icon.ico" `
+            "/DOUTFILE=$PWD\$out" `
+            "packaging\windows\installer.nsi"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-windows-${{ matrix.target }}
+          path: dist/*
+
+  # macOS: build a minimal .app bundle, then a dmg (human install) and a
+  # pkg (human install) from it, plus a bare tar.gz of just the binary
+  # for the in-app self-updater.
+  package-macos:
+    name: Package (aarch64-apple-darwin)
+    needs: [version, build]
+    if: needs.version.outputs.run_macos == 'true'
+    runs-on: macos-14
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.checkout_ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-aarch64-apple-darwin
+          path: staging
+
+      - name: Build .app bundle
+        run: |
+          set -euo pipefail
+          VERSION="${{ needs.version.outputs.version }}"
+          APP="dist/Oden.app"
+          mkdir -p "$APP/Contents/MacOS" "$APP/Contents/Resources"
+          chmod +x staging/oden
+          cp staging/oden "$APP/Contents/MacOS/oden"
+
+          # Build a .icns from the placeholder assets/icon.png via the
+          # native sips + iconutil toolchain (no Homebrew deps needed).
+          ICONSET=dist/icon.iconset
+          mkdir -p "$ICONSET"
+          for size in 16 32 128 256 512; do
+            sips -z $size $size assets/icon.png --out "$ICONSET/icon_${size}x${size}.png" >/dev/null
+            double=$((size * 2))
+            sips -z $double $double assets/icon.png --out "$ICONSET/icon_${size}x${size}@2x.png" >/dev/null
+          done
+          iconutil -c icns "$ICONSET" -o "$APP/Contents/Resources/icon.icns"
+
+          cat > "$APP/Contents/Info.plist" <<PLIST
+          <?xml version="1.0" encoding="UTF-8"?>
+          <!DOCTYPE plist PUBLIC "-//Apple//DTD PLIST 1.0//EN" "http://www.apple.com/DTDs/PropertyList-1.0.dtd">
+          <plist version="1.0">
+          <dict>
+            <key>CFBundleName</key><string>Oden</string>
+            <key>CFBundleDisplayName</key><string>Oden</string>
+            <key>CFBundleIdentifier</key><string>com.outoforder.oden</string>
+            <key>CFBundleVersion</key><string>${VERSION}</string>
+            <key>CFBundleShortVersionString</key><string>${VERSION}</string>
+            <key>CFBundleExecutable</key><string>oden</string>
+            <key>CFBundleIconFile</key><string>icon.icns</string>
+            <key>CFBundlePackageType</key><string>APPL</string>
+            <key>LSMinimumSystemVersion</key><string>11.0</string>
+            <key>NSHighResolutionCapable</key><true/>
+          </dict>
+          </plist>
+          PLIST
+
+      # Ad-hoc sign (no Apple Developer ID / notarization set up yet).
+      # without it, launching a downloaded (quarantined)
+      # build not possible.
+      # first launch needs right-click > Open (or `xattr -cr Oden.app`).
+      - name: Ad-hoc sign app bundle
+        run: codesign --force --deep --sign - dist/Oden.app
+
+      - name: Build dmg
+        run: |
+          brew install create-dmg
+          VERSION="${{ needs.version.outputs.version }}"
+          OUT="dist/oden-macos-arm64_${VERSION}.dmg"
+          rm -f "$OUT"
+          # create-dmg's AppleScript-driven Finder layout step can exit
+          # non-zero in CI even when it successfully produced the dmg, so
+          # don't fail the build on its exit code - just check the dmg
+          # actually landed.
+          create-dmg \
+            --volname "Oden" \
+            --window-pos 200 120 \
+            --window-size 660 400 \
+            --icon-size 128 \
+            --icon "Oden.app" 170 190 \
+            --hide-extension "Oden.app" \
+            --app-drop-link 490 190 \
+            "$OUT" \
+            "dist/Oden.app" || true
+          test -f "$OUT"
+
+      - name: Build pkg
+        run: |
+          VERSION="${{ needs.version.outputs.version }}"
+          pkgbuild --component dist/Oden.app --install-location /Applications \
+            "dist/oden-macos-arm64_${VERSION}.pkg"
+
+      # Named oden-macos-arm64_<version>.tar.gz to match the scheme
+      # self_update_asset_hint() in updater.rs expects for this platform.
+      - name: Build self-update tarball (raw binary only)
+        run: |
+          VERSION="${{ needs.version.outputs.version }}"
+          codesign --force --sign - staging/oden
+          tar -C staging -czf "dist/oden-macos-arm64_${VERSION}.tar.gz" oden
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-macos
+          path: |
+            dist/oden-macos-arm64_*.dmg
+            dist/oden-macos-arm64_*.pkg
+            dist/oden-macos-arm64_*.tar.gz
+
+  # Linux AppImage (both arches). This is the self-update-eligible Linux
+  # asset, so its filename must match the oden-linux-<arch>_<version>.AppImage
+  # scheme self_update_asset_hint() in updater.rs expects.
+  package-appimage:
+    name: Package AppImage (${{ matrix.target }})
+    needs: [version, build]
+    if: needs.version.outputs.appimage_targets != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include: ${{ fromJSON(needs.version.outputs.appimage_targets) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.checkout_ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-${{ matrix.target }}
+          path: staging
+
+      - name: Build AppImage
+        run: |
+          chmod +x staging/oden packaging/appimage/build-appimage.sh
+          packaging/appimage/build-appimage.sh staging/oden ${{ matrix.arch }} dist
+
+      - name: Rename to homogenized asset name
+        run: |
+          mv "dist/oden-${{ matrix.arch }}.AppImage" \
+            "dist/oden-linux-${{ matrix.arch_alias }}_${{ needs.version.outputs.version }}.AppImage"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-appimage-${{ matrix.target }}
+          path: dist/oden-linux-${{ matrix.arch_alias }}_${{ needs.version.outputs.version }}.AppImage
+
+  # Debian/Ubuntu .deb via cargo-deb, packaging the already-built binary
+  # (--no-build) rather than recompiling.
+  package-deb:
+    name: Package deb (${{ matrix.target }})
+    needs: [version, build]
+    if: needs.version.outputs.deb_targets != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include: ${{ fromJSON(needs.version.outputs.deb_targets) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.checkout_ref }}
+      - uses: dtolnay/rust-toolchain@stable
+        with:
+          targets: ${{ matrix.target }}
+      - run: cargo install cargo-deb
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-${{ matrix.target }}
+          path: staging
+
+      - name: Place prebuilt binary for cargo-deb
+        run: |
+          mkdir -p target/${{ matrix.target }}/release
+          cp staging/oden target/${{ matrix.target }}/release/oden
+          chmod +x target/${{ matrix.target }}/release/oden
+          mkdir -p crates/oden-app/target/${{ matrix.target }}/release
+          cp staging/oden crates/oden-app/target/${{ matrix.target }}/release/oden
+          chmod +x crates/oden-app/target/${{ matrix.target }}/release/oden
+
+      - name: Build deb
+        run: |
+          cargo deb --no-build --no-strip --target ${{ matrix.target }} -p oden \
+            --deb-version ${{ needs.version.outputs.version }}
+          mkdir -p dist
+          cp target/${{ matrix.target }}/debian/*.deb \
+            dist/oden-linux-${{ matrix.arch_alias }}_${{ needs.version.outputs.version }}.deb
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-deb-${{ matrix.target }}
+          path: dist/*.deb
+
+  # Fedora/openSUSE .rpm via cargo-generate-rpm, same prebuilt-binary
+  # approach as the deb job above.
+  package-rpm:
+    name: Package rpm (${{ matrix.target }})
+    needs: [version, build]
+    if: needs.version.outputs.rpm_targets != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include: ${{ fromJSON(needs.version.outputs.rpm_targets) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.checkout_ref }}
+      - uses: dtolnay/rust-toolchain@stable
+      - run: cargo install cargo-generate-rpm
+
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-${{ matrix.target }}
+          path: staging
+
+      - name: Place prebuilt binary for cargo-generate-rpm
+        run: |
+          mkdir -p crates/oden-app/target/release
+          cp staging/oden crates/oden-app/target/release/oden
+          chmod +x crates/oden-app/target/release/oden
+          mkdir -p target/release
+          cp staging/oden target/release/oden
+          chmod +x target/release/oden
+
+      - name: Build rpm
+        run: |
+          cargo generate-rpm -p crates/oden-app --arch ${{ matrix.rpm_arch }} \
+            --set-metadata "version=\"${{ needs.version.outputs.version }}\""
+          mkdir -p dist
+          cp target/generate-rpm/*.rpm \
+            "dist/oden-linux-${{ matrix.arch_alias }}_${{ needs.version.outputs.version }}.rpm"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-rpm-${{ matrix.target }}
+          path: dist/*.rpm
+
+  # Arch Linux package via a hand-written PKGBUILD + makepkg. GitHub has
+  # no native Arch runner, so this runs inside an Arch container; aarch64
+  # runs under QEMU. The official archlinux image only publishes linux/amd64,
+  # so aarch64 uses the (unofficial but widely used for CI) Arch Linux ARM
+  # image instead.
+  package-arch:
+    name: Package Arch (${{ matrix.target }})
+    needs: [version, build]
+    if: needs.version.outputs.arch_targets != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include: ${{ fromJSON(needs.version.outputs.arch_targets) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.checkout_ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-${{ matrix.target }}
+          path: staging
+
+      - name: Set up QEMU
+        if: matrix.platform == 'linux/arm64'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Stage PKGBUILD inputs
+        run: |
+          mkdir -p pkgbuild-src
+          cp staging/oden pkgbuild-src/oden
+          cp packaging/linux/com.outoforder.oden.desktop pkgbuild-src/
+          cp packaging/linux/com.outoforder.oden.metainfo.xml pkgbuild-src/
+          cp assets/icon-512.png pkgbuild-src/icon.png
+          sed \
+            -e "s/@VERSION@/${{ needs.version.outputs.version }}/g" \
+            -e "s/@CARCH@/${{ matrix.arch }}/g" \
+            packaging/arch/PKGBUILD > pkgbuild-src/PKGBUILD
+
+      - name: makepkg (Arch container)
+        run: |
+          docker run --rm --platform ${{ matrix.platform }} \
+            -v "${{ github.workspace }}/pkgbuild-src:/build" \
+            -w /build \
+            ${{ matrix.image }} \
+            bash -c "sed -i '/^\[options\]/a DisableSandbox' /etc/pacman.conf && \
+                     pacman -Sy --noconfirm --needed base-devel && \
+                     useradd -m builder && chown -R builder:builder /build && \
+                     su builder -c 'PKGEXT=.pkg.tar.zst makepkg --nodeps --noconfirm'"
+          mkdir -p dist
+          cp pkgbuild-src/*.pkg.tar.zst \
+            "dist/oden-linux-${{ matrix.arch_alias }}_${{ needs.version.outputs.version }}.pkg.tar.zst"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-arch-${{ matrix.target }}
+          path: dist/*.pkg.tar.zst
+
+  # Flatpak: buildsystem "simple" module that only installs the already
+  # -built binary + desktop/icon/metainfo ; no Rust compilation inside
+  # the sandbox, no dependency vendoring needed. Produces a local
+  # .flatpak bundle attached to the release; WE ARE NOT publishing to
+  # Flathub here.
+  package-flatpak:
+    name: Package Flatpak (${{ matrix.target }})
+    needs: [version, build]
+    if: needs.version.outputs.flatpak_targets != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include: ${{ fromJSON(needs.version.outputs.flatpak_targets) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.checkout_ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-${{ matrix.target }}
+          path: staging
+
+      - name: Set up QEMU
+        if: matrix.arch == 'aarch64'
+        uses: docker/setup-qemu-action@v3
+
+      - name: Install flatpak-builder
+        run: |
+          sudo apt-get update
+          sudo apt-get install -y flatpak flatpak-builder
+          sudo flatpak remote-add --if-not-exists flathub https://flathub.org/repo/flathub.flatpakrepo
+          sudo flatpak install -y --noninteractive --arch=${{ matrix.arch }} flathub \
+            org.freedesktop.Platform//24.08 org.freedesktop.Sdk//24.08
+
+      - name: Stage manifest inputs
+        run: |
+          mkdir -p flatpak-src
+          cp staging/oden flatpak-src/oden
+          cp packaging/linux/com.outoforder.oden.desktop flatpak-src/
+          cp packaging/linux/com.outoforder.oden.metainfo.xml flatpak-src/
+          cp assets/icon-512.png flatpak-src/icon.png
+          sed "s/@VERSION@/${{ needs.version.outputs.version }}/g" \
+            packaging/linux/com.outoforder.oden.metainfo.xml > flatpak-src/com.outoforder.oden.metainfo.xml
+          cp packaging/flatpak/com.outoforder.oden.yml flatpak-src/
+
+      - name: Build and bundle
+        run: |
+          cd flatpak-src
+          sudo flatpak-builder --force-clean --arch=${{ matrix.arch }} \
+            --repo=repo build-dir com.outoforder.oden.yml
+          sudo flatpak build-bundle --arch=${{ matrix.arch }} \
+            repo oden-${{ matrix.arch }}.flatpak com.outoforder.oden
+          mkdir -p ../dist
+          sudo mv oden-${{ matrix.arch }}.flatpak \
+            "../dist/oden-linux-${{ matrix.arch_alias }}_${{ needs.version.outputs.version }}.flatpak"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-flatpak-${{ matrix.target }}
+          path: dist/oden-linux-${{ matrix.arch_alias }}_${{ needs.version.outputs.version }}.flatpak
+
+  # Snap: dump plugin pulling in the already-built binary, same
+  # no-rebuild approach. Uses the standard snapcore action rather than
+  # hand-installing snapcraft. Local .snap only; WE ARE NOT publishing to
+  # Snap Store here.
+  package-snap:
+    name: Package Snap (${{ matrix.target }})
+    needs: [version, build]
+    if: needs.version.outputs.snap_targets != '[]'
+    runs-on: ubuntu-latest
+    strategy:
+      matrix:
+        include: ${{ fromJSON(needs.version.outputs.snap_targets) }}
+    steps:
+      - uses: actions/checkout@v4
+        with:
+          ref: ${{ needs.version.outputs.checkout_ref }}
+      - uses: actions/download-artifact@v4
+        with:
+          name: bin-${{ matrix.target }}
+          path: staging
+
+      - name: Stage snapcraft inputs
+        run: |
+          mkdir -p snap-src/bin
+          cp staging/oden snap-src/bin/oden
+          chmod +x snap-src/bin/oden
+          cp packaging/linux/com.outoforder.oden.desktop snap-src/
+          cp assets/icon-512.png snap-src/icon.png
+          mkdir -p snap-src/snap
+          sed "s/@VERSION@/${{ needs.version.outputs.version }}/g" \
+            packaging/snap/snapcraft.yaml > snap-src/snap/snapcraft.yaml
+
+      - uses: snapcore/action-build@v1
+        id: snapcraft
+        with:
+          path: snap-src
+
+      - name: Rename output
+        run: |
+          mkdir -p dist
+          cp "${{ steps.snapcraft.outputs.snap }}" \
+            "dist/oden-linux-${{ matrix.arch_alias }}_${{ needs.version.outputs.version }}.snap"
+
+      - uses: actions/upload-artifact@v4
+        with:
+          name: package-snap-${{ matrix.target }}
+          path: dist/*.snap
+
+  # Attach every packaged asset to the GitHub Release for this tag
+  # Only runs for a full release
+  # a build-only run stops here, leaving
+  # its output as plain workflow artifacts on the run instead.
+  publish:
+    name: Publish release assets
+    needs:
+      - version
+      - build
+      - package-windows
+      - package-macos
+      - package-appimage
+      - package-deb
+      - package-rpm
+      - package-arch
+      - package-flatpak
+      - package-snap
+    if: |
+      always() &&
+      needs.version.outputs.full_release == 'true' &&
+      needs.build.result == 'success' &&
+      needs.package-windows.result != 'failure' &&
+      needs.package-macos.result != 'failure' &&
+      needs.package-appimage.result != 'failure' &&
+      needs.package-deb.result != 'failure' &&
+      needs.package-rpm.result != 'failure' &&
+      needs.package-arch.result != 'failure' &&
+      needs.package-flatpak.result != 'failure' &&
+      needs.package-snap.result != 'failure'
+    runs-on: ubuntu-latest
+    permissions:
+      contents: write
+    steps:
+      - uses: actions/download-artifact@v4
+        with:
+          path: artifacts
+          pattern: "package-*"
+
+      - name: Rename self-update-eligible Linux/Windows/macOS assets into place
+        run: |
+          mkdir -p release
+          find artifacts -type f \( \
+            -name '*.zip' -o -name '*.dmg' -o -name '*.pkg' -o -name '*.tar.gz' \
+            -o -name '*.AppImage' -o -name '*.deb' -o -name '*.rpm' \
+            -o -name '*.pkg.tar.zst' -o -name '*.flatpak' -o -name '*.snap' \
+            -o -name '*.exe' \
+          \) -exec cp {} release/ \;
+          ls -la release
+
+      # Piped through env (not interpolated straight into the script) since
+      # the changelog is arbitrary Markdown - backticks, `$`, quotes from
+      # commit messages - and would otherwise be a shell-injection risk.
+      - name: Write release notes
+        env:
+          CHANGELOG: ${{ needs.version.outputs.changelog }}
+        run: printf '%s\n' "$CHANGELOG" > /tmp/release-notes.md
+
+      - name: Ensure GitHub Release exists
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          tag="${{ needs.version.outputs.tag }}"
+          if gh release view "$tag" --repo "${{ github.repository }}" >/dev/null 2>&1; then
+            echo "release $tag already exists, refreshing its notes"
+            gh release edit "$tag" --repo "${{ github.repository }}" \
+              --notes-file /tmp/release-notes.md
+          else
+            echo "release $tag not found, creating it"
+            gh release create "$tag" \
+              --repo "${{ github.repository }}" \
+              --title "$tag" \
+              --notes-file /tmp/release-notes.md
+          fi
+
+      - name: Upload to GitHub Release
+        env:
+          GH_TOKEN: ${{ github.token }}
+        run: |
+          gh release upload "${{ needs.version.outputs.tag }}" release/* \
+            --repo "${{ github.repository }}" --clobber

@@ -2,6 +2,9 @@
 members = ["crates/comrak-gpui", "crates/oden-app", "crates/oden-core", "crates/oden-graph"]
 resolver = "2"
 
+[profile.release]
+strip = true
+
 [workspace.dependencies]
 anyhow = "1"
 async-trait = "0.1"
@@ -10,3 +13,6 @@ gpui-component = { version = "0.5.1", features = ["tree-sitter-languages"] }
 tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }
+tracing = "0.1"
+tracing-subscriber = { version = "0.3", features = ["env-filter"] }
+tracing-appender = "0.2"

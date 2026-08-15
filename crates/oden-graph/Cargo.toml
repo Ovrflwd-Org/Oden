@@ -6,3 +6,4 @@ edition = "2024"
 [dependencies]
 uuid.workspace = true
 gpui.workspace = true
+tracing.workspace = true

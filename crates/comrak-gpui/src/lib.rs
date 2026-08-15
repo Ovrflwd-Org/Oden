@@ -27,6 +27,7 @@ struct TextStyle {
 // parses a markdown document using comrak and returns a
 // renderable gpui element
 pub fn render_document(document: &str, cx: &App) -> AnyElement {
+    tracing::trace!(len = document.len(), "rendering markdown document");
     let arena = Arena::new();
     let mut options = Options::default();
     options.extension.tasklist = true;
@@ -65,7 +66,6 @@ fn block_for_node(node: &Node<'_, RefCell<Ast>>) -> f32 {
 // each child into a gpui element
 fn render_node<'a>(node: &'a Node<'a, RefCell<Ast>>, cx: &App) -> AnyElement {
     let theme = cx.theme();
-    println!("{:?}", node.data().value);
     match &node.data().value {
         Document => div()
             .p_4()
@@ -126,7 +126,7 @@ fn render_node<'a>(node: &'a Node<'a, RefCell<Ast>>, cx: &App) -> AnyElement {
             );
             let ranges: Vec<Range<usize>> = links.iter().map(|link| link.range.clone()).collect();
             InteractiveText::new(
-                ElementId::Name(SharedString::from("md-paragraph")),
+                ElementId::named_usize("md-paragraph", node as *const _ as usize),
                 StyledText::new(text).with_runs(runs),
             )
             .on_click(ranges, move |index, _window, cx| {
@@ -239,10 +239,23 @@ fn collect_segments<'a>(
                 });
             }
             comrak::nodes::NodeValue::SoftBreak => {
-                println!("called soft break");
+                text.push(' ');
+                runs.push(TextRun {
+                    len: 1,
+                    font: Font {
+                        family: theme.font_family.clone(),
+                        features: FontFeatures::default(),
+                        fallbacks: None,
+                        weight: style.weight,
+                        style: style.style,
+                    },
+                    color: style.color.unwrap_or(theme.foreground),
+                    background_color: style.background_color,
+                    underline: style.underline,
+                    strikethrough: style.strikethrough,
+                });
             }
             LineBreak => {
-                print!("Called line break");
                 text.push('\n');
                 runs.push(TextRun {
                     len: 1,

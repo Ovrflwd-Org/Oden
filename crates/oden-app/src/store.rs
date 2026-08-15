@@ -36,6 +36,7 @@ impl ItemStore {
 
     pub async fn init(cx: &mut AsyncApp, repository: &ItemRepository) -> anyhow::Result<()> {
         let items: Vec<item::Model> = repository.find_all().await?;
+        tracing::info!(count = items.len(), "loaded items into store");
         cx.update(move |cx| {
             let mut store = ItemStore {
                 items: HashMap::new(),
