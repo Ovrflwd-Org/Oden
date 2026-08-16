@@ -68,6 +68,7 @@ async fn main() -> anyhow::Result<()> {
         gpui_component::init(cx);
         AppSettingsState::init(cx);
         UpdateState::init(cx);
+        updater::ChangelogState::init(cx);
         about::AboutState::init(cx);
         setup_theme(cx);
         let mut titlebar_options = TitleBar::title_bar_options();

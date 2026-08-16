@@ -5,7 +5,7 @@ use gpui::{
 };
 use gpui_component::ThemeRegistry;
 use gpui_component::{
-    ActiveTheme, Icon, IconName as UiIconName, Sizable, Size,
+    ActiveTheme, Disableable, Icon, IconName as UiIconName, Sizable, Size,
     avatar::Avatar,
     button::{Button, ButtonVariants},
     h_flex,
@@ -16,9 +16,9 @@ use gpui_component::{
 };
 
 use crate::{
-    about::{self, AboutState, ContributorsStatus},
+    about::{AboutState, ContributorsStatus},
     app_settings::AppSettingsState,
-    updater::{self, UpdateState, UpdateStatus},
+    updater::{self, ChangelogState, ChangelogStatus, UpdateState, UpdateStatus},
 };
 
 const APP_VERSION: &str = env!("CARGO_PKG_VERSION");
@@ -28,6 +28,7 @@ pub(crate) struct SettingsView {
     _settings_sub: Subscription,
     _update_sub: Subscription,
     _about_sub: Subscription,
+    _changelog_sub: Subscription,
 }
 
 impl SettingsView {
@@ -35,30 +36,32 @@ impl SettingsView {
         let _settings_sub = cx.observe_global::<AppSettingsState>(|_this, cx| cx.notify());
         let _update_sub = cx.observe_global::<UpdateState>(|_this, cx| cx.notify());
         let _about_sub = cx.observe_global::<AboutState>(|_this, cx| cx.notify());
+        let _changelog_sub = cx.observe_global::<ChangelogState>(|_this, cx| cx.notify());
         Self {
             _settings_sub,
             _update_sub,
             _about_sub,
+            _changelog_sub,
         }
     }
 }
 
-fn theme_options(cx: &App) -> Vec<(SharedString, SharedString)> {
+fn theme_names(cx: &App) -> Vec<SharedString> {
     ThemeRegistry::global(cx)
         .sorted_themes()
         .into_iter()
-        .map(|theme| (theme.name.clone(), theme.name.clone()))
+        .map(|theme| theme.name.clone())
         .collect()
 }
 
 fn theme_dropdown_field() -> SettingField<SharedString> {
     SettingField::render(move |_options, _window, cx| {
-        let options = theme_options(cx);
+        let names = theme_names(cx);
         let current = AppSettingsState::get(cx).theme.clone();
-        let current_label = options
+        let current_label = names
             .iter()
-            .find(|(value, _)| value.as_ref() == current)
-            .map(|(_, label)| label.clone())
+            .find(|name| name.as_ref() == current)
+            .cloned()
             .unwrap_or_else(|| SharedString::from(current.clone()));
 
         Button::new("theme-dropdown")
@@ -67,54 +70,52 @@ fn theme_dropdown_field() -> SettingField<SharedString> {
             .outline()
             .dropdown_menu_with_anchor(Corner::TopRight, move |menu, _, _| {
                 let current = current.clone();
-                options.iter().fold(
-                    menu.scrollable(true).max_h(px(320.)),
-                    |menu, (value, label)| {
-                        let checked = value.as_ref() == current;
-                        let value = value.clone();
-                        menu.item(PopupMenuItem::new(label.clone()).checked(checked).on_click(
+                names
+                    .iter()
+                    .fold(menu.scrollable(true).max_h(px(320.)), |menu, name| {
+                        let checked = name.as_ref() == current;
+                        let name = name.clone();
+                        menu.item(PopupMenuItem::new(name.clone()).checked(checked).on_click(
                             move |_, _, cx| {
                                 AppSettingsState::update(cx, |settings| {
-                                    settings.theme = value.to_string();
+                                    settings.theme = name.to_string();
                                 });
-                                crate::apply_theme(&value, cx);
+                                crate::apply_theme(&name, cx);
                             },
                         ))
-                    },
-                )
+                    })
             })
     })
 }
 
 fn general_page() -> SettingPage {
-    SettingPage::new("General").default_open(true).group(
-        SettingGroup::new()
-            .title("Appearance")
-            .item(
+    SettingPage::new("General")
+        .default_open(true)
+        .group(
+            SettingGroup::new().title("Appearance").item(
                 SettingItem::new("Theme", theme_dropdown_field())
                     .description("Pick a color theme for the interface."),
-            )
-            .item(
-                SettingItem::new(
-                    "Check for updates automatically",
-                    SettingField::switch(
-                        |cx| AppSettingsState::get(cx).check_for_updates,
-                        |value, cx| {
-                            AppSettingsState::update(cx, |settings| {
-                                settings.check_for_updates = value;
-                            });
-                        },
-                    ),
-                )
-                .description("Look for a new release on startup."),
             ),
-    )
-}
-
-fn updates_page() -> SettingPage {
-    SettingPage::new("Updates")
-        .resettable(false)
-        .group(SettingGroup::new().item(SettingItem::render(render_update_panel)))
+        )
+        .group(
+            SettingGroup::new()
+                .title("Updates")
+                .item(
+                    SettingItem::new(
+                        "Check for updates automatically",
+                        SettingField::switch(
+                            |cx| AppSettingsState::get(cx).check_for_updates,
+                            |value, cx| {
+                                AppSettingsState::update(cx, |settings| {
+                                    settings.check_for_updates = value;
+                                });
+                            },
+                        ),
+                    )
+                    .description("Look for a new release on startup."),
+                )
+                .item(SettingItem::render(render_update_panel)),
+        )
 }
 
 fn about_page() -> SettingPage {
@@ -155,12 +156,15 @@ fn render_update_panel(
     let muted = cx.theme().muted_foreground;
     let green = cx.theme().green_light;
     let red = cx.theme().red_light;
-    let border = cx.theme().border;
 
     let is_checking = matches!(status, UpdateStatus::Checking);
 
     let status_row: Option<gpui::AnyElement> = match status.clone() {
-        UpdateStatus::Idle => Some(Label::new("Not checked yet.").text_color(muted).into_any_element()),
+        UpdateStatus::Idle => Some(
+            Label::new("Not checked yet.")
+                .text_color(muted)
+                .into_any_element(),
+        ),
         UpdateStatus::Checking => Some(
             Label::new("Checking for updates...")
                 .text_color(muted)
@@ -195,7 +199,11 @@ fn render_update_panel(
                 })
                 .into_any_element(),
         ),
-        UpdateStatus::Installing { .. } => None,
+        UpdateStatus::Installing { .. } => Some(
+            Label::new("Downloading the update...")
+                .text_color(muted)
+                .into_any_element(),
+        ),
         UpdateStatus::Installed { version } => Some(
             h_flex()
                 .gap_2()
@@ -232,7 +240,10 @@ fn render_update_panel(
                 .primary()
                 .loading(true)
                 .tooltip("Downloading the update...")
-                .label(format!("Installing... {}%", (progress * 100.0).round() as i32))
+                .label(format!(
+                    "Installing... {}%",
+                    (progress * 100.0).round() as i32
+                ))
                 .w_full();
 
             install_progress_button(button, Some(progress), cx)
@@ -264,6 +275,28 @@ fn render_update_panel(
             .into_any_element(),
     };
 
+    let preview_button = {
+        let window_handle = window.window_handle().downcast::<gpui_component::Root>();
+        let is_loading_changelog =
+            matches!(ChangelogState::get(cx).status, ChangelogStatus::Loading);
+        Button::new("preview-whats-new")
+            .ghost()
+            .small()
+            .loading(is_loading_changelog)
+            .disabled(is_loading_changelog)
+            .label(if is_loading_changelog {
+                "Loading changelog..."
+            } else {
+                "Preview \"What's New\""
+            })
+            .tooltip("Show the post-update changelog popup now, without waiting for an update.")
+            .on_click(move |_, _, cx| {
+                if let Some(window_handle) = window_handle {
+                    updater::preview_whats_new(window_handle, cx);
+                }
+            })
+    };
+
     v_flex()
         .gap_4()
         .child(
@@ -280,30 +313,15 @@ fn render_update_panel(
                                 .text_sm(),
                         ),
                 )
-                .child(primary_button),
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .items_center()
+                        .child(preview_button)
+                        .child(primary_button),
+                ),
         )
-        .when_some(status_row, |this, status_row| {
-            this.child(
-                div()
-                    .border_t(px(1.0))
-                    .border_color(border)
-                    .pt_3()
-                    .child(status_row),
-            )
-        })
-        .child({
-            let window_handle = window.window_handle().downcast::<gpui_component::Root>();
-            Button::new("preview-whats-new")
-                .ghost()
-                .small()
-                .label("Preview \"What's New\"")
-                .tooltip("Show the post-update changelog popup now, without waiting for an update.")
-                .on_click(move |_, _, cx| {
-                    if let Some(window_handle) = window_handle {
-                        updater::preview_whats_new(window_handle, cx);
-                    }
-                })
-        })
+        .when_some(status_row, |this, status_row| this.child(status_row))
         .into_any_element()
 }
 
@@ -316,8 +334,6 @@ fn render_about_panel(
     _window: &mut Window,
     cx: &mut App,
 ) -> gpui::AnyElement {
-    about::ensure_contributors_loaded(cx);
-
     let muted = cx.theme().muted_foreground;
     let border = cx.theme().border;
 
@@ -361,16 +377,12 @@ fn render_about_panel(
                 ),
         )
         .child(
-            div()
-                .border_t_1()
-                .border_color(border)
-                .pt_4()
-                .child(
-                    v_flex()
-                        .gap_3()
-                        .child(Label::new("Contributors").font_weight(FontWeight::BOLD))
-                        .child(contributors_section(cx)),
-                ),
+            div().border_t_1().border_color(border).pt_4().child(
+                v_flex()
+                    .gap_3()
+                    .child(Label::new("Contributors").font_weight(FontWeight::BOLD))
+                    .child(contributors_section(cx)),
+            ),
         )
         .into_any_element()
 }
@@ -379,16 +391,14 @@ fn contributors_section(cx: &App) -> gpui::AnyElement {
     let muted = cx.theme().muted_foreground;
 
     match &AboutState::get(cx).contributors {
-        ContributorsStatus::Idle | ContributorsStatus::Loading => {
-            Label::new("Loading contributors from GitHub...")
+        ContributorsStatus::Loading => Label::new("Loading contributors from GitHub...")
+            .text_color(muted)
+            .into_any_element(),
+        ContributorsStatus::Error(message) => {
+            Label::new(format!("Couldn't load contributors from GitHub: {message}"))
                 .text_color(muted)
                 .into_any_element()
         }
-        ContributorsStatus::Error(message) => Label::new(format!(
-            "Couldn't load contributors from GitHub: {message}"
-        ))
-        .text_color(muted)
-        .into_any_element(),
         ContributorsStatus::Loaded(contributors) if contributors.is_empty() => {
             Label::new("No contributors found.")
                 .text_color(muted)
@@ -399,31 +409,38 @@ fn contributors_section(cx: &App) -> gpui::AnyElement {
             .gap_2()
             .children(contributors.iter().map(|contributor| {
                 let profile_url = contributor.html_url.clone();
-                Button::new(SharedString::from(format!("contributor-{}", contributor.login)))
-                    .ghost()
-                    .compact()
-                    .tooltip(format!(
-                        "{} · {} contribution{}",
-                        contributor.login,
-                        contributor.contributions,
-                        if contributor.contributions == 1 { "" } else { "s" }
-                    ))
-                    .child(
-                        h_flex()
-                            .gap_2()
-                            .items_center()
-                            .child({
-                                let avatar = Avatar::new()
-                                    .name(contributor.login.clone())
-                                    .with_size(Size::Small);
-                                match contributor.avatar.clone() {
-                                    Some(image) => avatar.src(ImageSource::Image(image)),
-                                    None => avatar,
-                                }
-                            })
-                            .child(Label::new(contributor.login.clone())),
-                    )
-                    .on_click(move |_, _, cx| cx.open_url(&profile_url))
+                Button::new(SharedString::from(format!(
+                    "contributor-{}",
+                    contributor.login
+                )))
+                .ghost()
+                .compact()
+                .tooltip(format!(
+                    "{} · {} contribution{}",
+                    contributor.login,
+                    contributor.contributions,
+                    if contributor.contributions == 1 {
+                        ""
+                    } else {
+                        "s"
+                    }
+                ))
+                .child(
+                    h_flex()
+                        .gap_2()
+                        .items_center()
+                        .child({
+                            let avatar = Avatar::new()
+                                .name(contributor.login.clone())
+                                .with_size(Size::Small);
+                            match contributor.avatar.clone() {
+                                Some(image) => avatar.src(ImageSource::Image(image)),
+                                None => avatar,
+                            }
+                        })
+                        .child(Label::new(contributor.login.clone())),
+                )
+                .on_click(move |_, _, cx| cx.open_url(&profile_url))
             }))
             .into_any_element(),
     }
@@ -431,10 +448,9 @@ fn contributors_section(cx: &App) -> gpui::AnyElement {
 
 impl Render for SettingsView {
     fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl IntoElement {
-        div().id("settings-view").size_full().p_4().child(
+        div().id("settings-view").size_full().child(
             Settings::new("app-settings")
                 .page(general_page())
-                .page(updates_page())
                 .page(about_page()),
         )
     }

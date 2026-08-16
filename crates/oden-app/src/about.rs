@@ -2,7 +2,7 @@
 
 use std::sync::Arc;
 
-use gpui::{App, BorrowAppContext, Global, Image, ImageFormat};
+use gpui::{App, Global, Image, ImageFormat};
 use serde::Deserialize;
 
 pub const REPO_OWNER: &str = "out-of-order";
@@ -21,7 +21,6 @@ pub struct Contributor {
 #[derive(Debug, Clone, Default)]
 pub enum ContributorsStatus {
     #[default]
-    Idle,
     Loading,
     Loaded(Vec<Contributor>),
     Error(String),
@@ -36,8 +35,9 @@ impl Global for AboutState {}
 impl AboutState {
     pub fn init(cx: &mut App) {
         cx.set_global(AboutState {
-            contributors: ContributorsStatus::Idle,
+            contributors: ContributorsStatus::Loading,
         });
+        load_contributors(cx);
     }
 
     pub fn get(cx: &App) -> &Self {
@@ -45,37 +45,33 @@ impl AboutState {
     }
 }
 
-pub fn ensure_contributors_loaded(cx: &mut App) {
-    if !matches!(AboutState::get(cx).contributors, ContributorsStatus::Idle) {
-        return;
+async fn fetch_contributors() -> anyhow::Result<Vec<Contributor>> {
+    let url =
+        format!("https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contributors?per_page=12");
+    let client = reqwest::Client::builder()
+        .user_agent(format!("oden/{}", env!("CARGO_PKG_VERSION")))
+        .build()?;
+    let mut contributors = client
+        .get(&url)
+        .header(reqwest::header::ACCEPT, "application/vnd.github+json")
+        .send()
+        .await?
+        .error_for_status()?
+        .json::<Vec<Contributor>>()
+        .await?;
+
+    for contributor in &mut contributors {
+        contributor.avatar = fetch_avatar(&client, &contributor.avatar_url).await;
     }
+
+    Ok(contributors)
+}
+
+fn load_contributors(cx: &mut App) {
     tracing::debug!("fetching repo contributors");
-    cx.update_global::<AboutState, _>(|state, _| {
-        state.contributors = ContributorsStatus::Loading;
-    });
 
     cx.spawn(async move |cx| {
-        let result = tokio::task::spawn_blocking(|| -> anyhow::Result<Vec<Contributor>> {
-            let url = format!(
-                "https://api.github.com/repos/{REPO_OWNER}/{REPO_NAME}/contributors?per_page=12"
-            );
-            let client = reqwest::blocking::Client::builder()
-                .user_agent(format!("oden/{}", env!("CARGO_PKG_VERSION")))
-                .build()?;
-            let mut contributors = client
-                .get(&url)
-                .header(reqwest::header::ACCEPT, "application/vnd.github+json")
-                .send()?
-                .error_for_status()?
-                .json::<Vec<Contributor>>()?;
-
-            for contributor in &mut contributors {
-                contributor.avatar = fetch_avatar(&client, &contributor.avatar_url);
-            }
-
-            Ok(contributors)
-        })
-        .await;
+        let result = tokio::spawn(fetch_contributors()).await;
 
         let status = match result {
             Ok(Ok(contributors)) => {
@@ -99,15 +95,21 @@ pub fn ensure_contributors_loaded(cx: &mut App) {
     .detach();
 }
 
-fn fetch_avatar(client: &reqwest::blocking::Client, avatar_url: &str) -> Option<Arc<Image>> {
-    let response = client.get(avatar_url).send().ok()?.error_for_status().ok()?;
+async fn fetch_avatar(client: &reqwest::Client, avatar_url: &str) -> Option<Arc<Image>> {
+    let response = client
+        .get(avatar_url)
+        .send()
+        .await
+        .ok()?
+        .error_for_status()
+        .ok()?;
     let format = response
         .headers()
         .get(reqwest::header::CONTENT_TYPE)
         .and_then(|value| value.to_str().ok())
         .and_then(image_format_from_mime_type)
         .unwrap_or(ImageFormat::Jpeg);
-    let bytes = response.bytes().ok()?.to_vec();
+    let bytes = response.bytes().await.ok()?.to_vec();
     Some(Arc::new(Image::from_bytes(format, bytes)))
 }
 

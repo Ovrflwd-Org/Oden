@@ -1,10 +1,15 @@
 #![allow(dead_code)]
 
+use std::cell::RefCell;
 use std::env;
 use std::io::Read as _;
+use std::rc::Rc;
 
 use anyhow::anyhow;
-use gpui::{App, AsyncApp, BorrowAppContext, Global, ParentElement, Styled, WindowHandle, div, px};
+use gpui::{
+    App, AsyncApp, BorrowAppContext, Global, ParentElement, Styled, Subscription, WindowHandle,
+    div, px,
+};
 use gpui_component::{Root, WindowExt as _, scroll::ScrollableElement as _};
 use self_update::cargo_crate_version;
 
@@ -54,7 +59,10 @@ fn configure_builder(fake_url: Option<&str>) -> self_update::backends::github::U
 /// Finds the newest release strictly newer than the running
 /// version, returning its plain semver version and full tag name.
 fn latest_oden_release(fake_url: Option<&str>) -> anyhow::Result<Option<(String, String)>> {
-    tracing::debug!(fake_mode = fake_url.is_some(), "resolving latest oden release");
+    tracing::debug!(
+        fake_mode = fake_url.is_some(),
+        "resolving latest oden release"
+    );
     if let Some(url) = fake_url {
         let update = configure_builder(Some(url)).build()?;
         let latest = update.get_latest_release()?;
@@ -147,15 +155,9 @@ pub enum UpdateStatus {
     Idle,
     Checking,
     UpToDate,
-    Available {
-        version: String,
-    },
-    Installing {
-        progress: f32,
-    },
-    Installed {
-        version: String,
-    },
+    Available { version: String },
+    Installing { progress: f32 },
+    Installed { version: String },
     Error(String),
 }
 
@@ -375,6 +377,86 @@ pub fn restart_app(cx: &mut App) {
     cx.restart();
 }
 
+#[derive(Debug, Clone)]
+pub enum ChangelogStatus {
+    Loading,
+    Loaded {
+        version: String,
+        body: Option<String>,
+    },
+    Error(String),
+}
+
+pub struct ChangelogState {
+    pub status: ChangelogStatus,
+}
+
+impl Global for ChangelogState {}
+
+impl ChangelogState {
+    pub fn init(cx: &mut App) {
+        cx.set_global(ChangelogState {
+            status: ChangelogStatus::Loading,
+        });
+        load_changelog(cx);
+    }
+
+    pub fn init_default(cx: &mut App) {
+        cx.set_global(ChangelogState {
+            status: ChangelogStatus::Loading,
+        });
+    }
+
+    pub fn get(cx: &App) -> &Self {
+        cx.global::<Self>()
+    }
+}
+
+fn load_changelog(cx: &mut App) {
+    let fake_url = fake_server_url();
+    let current_version = env!("CARGO_PKG_VERSION").to_string();
+    tracing::debug!(version = %current_version, "fetching changelog for the running version");
+
+    cx.spawn(async move |cx| {
+        let result =
+            tokio::task::spawn_blocking(move || -> anyhow::Result<(String, Option<String>)> {
+                let update = configure_builder(fake_url.as_deref()).build()?;
+                let release = if fake_url.is_some() {
+                    update.get_latest_release()?
+                } else {
+                    update.get_release_version(&format!("{TAG_PREFIX}{current_version}"))?
+                };
+                let version = release
+                    .version
+                    .strip_prefix(TAG_PREFIX)
+                    .unwrap_or(&release.version)
+                    .to_string();
+                Ok((version, release.body))
+            })
+            .await;
+
+        let status = match result {
+            Ok(Ok((version, body))) => {
+                tracing::info!(version, "changelog: loaded release notes");
+                ChangelogStatus::Loaded { version, body }
+            }
+            Ok(Err(err)) => {
+                tracing::warn!(error = ?err, "changelog: failed to fetch release notes");
+                ChangelogStatus::Error(err.to_string())
+            }
+            Err(join_err) => {
+                tracing::error!(error = ?join_err, "changelog: fetch task panicked");
+                ChangelogStatus::Error(join_err.to_string())
+            }
+        };
+
+        let _ = cx.update_global::<ChangelogState, _>(|state, _| {
+            state.status = status;
+        });
+    })
+    .detach();
+}
+
 pub fn show_whats_new_if_updated(window: WindowHandle<Root>, cx: &mut App) {
     let fake_url = fake_server_url();
     let current_version = env!("CARGO_PKG_VERSION").to_string();
@@ -395,47 +477,47 @@ pub fn show_whats_new_if_updated(window: WindowHandle<Root>, cx: &mut App) {
     }
 
     tracing::info!(version = %current_version, "showing what's-new for updated version");
-    fetch_and_show_whats_new(window, cx, fake_url, current_version);
+    show_whats_new(window, cx);
 }
 
 pub fn preview_whats_new(window: WindowHandle<Root>, cx: &mut App) {
-    let fake_url = fake_server_url();
-    let current_version = env!("CARGO_PKG_VERSION").to_string();
-    fetch_and_show_whats_new(window, cx, fake_url, current_version);
+    show_whats_new(window, cx);
 }
 
-fn fetch_and_show_whats_new(
+fn show_whats_new(window: WindowHandle<Root>, cx: &mut App) {
+    match ChangelogState::get(cx).status.clone() {
+        ChangelogStatus::Loaded { version, body } => {
+            open_whats_new_dialog(window, cx, version, body);
+        }
+        ChangelogStatus::Error(_) => {
+            load_changelog(cx);
+            show_whats_new_once_loaded(window, cx);
+        }
+        ChangelogStatus::Loading => {
+            show_whats_new_once_loaded(window, cx);
+        }
+    }
+}
+
+fn show_whats_new_once_loaded(window: WindowHandle<Root>, cx: &mut App) {
+    let subscription_slot: Rc<RefCell<Option<Subscription>>> = Rc::new(RefCell::new(None));
+    let slot_for_callback = subscription_slot.clone();
+    let subscription = cx.observe_global::<ChangelogState>(move |cx| {
+        if let ChangelogStatus::Loaded { version, body } = ChangelogState::get(cx).status.clone() {
+            open_whats_new_dialog(window, cx, version, body);
+            slot_for_callback.borrow_mut().take();
+        }
+    });
+    *subscription_slot.borrow_mut() = Some(subscription);
+}
+
+fn open_whats_new_dialog(
     window: WindowHandle<Root>,
     cx: &mut App,
-    fake_url: Option<String>,
-    version_for_tag: String,
+    version: String,
+    body: Option<String>,
 ) {
-    cx.spawn(async move |cx| {
-        let result =
-            tokio::task::spawn_blocking(move || -> anyhow::Result<(String, Option<String>)> {
-                let update = configure_builder(fake_url.as_deref()).build()?;
-                let release = if fake_url.is_some() {
-                    update.get_latest_release()?
-                } else {
-                    update.get_release_version(&format!("{TAG_PREFIX}{version_for_tag}"))?
-                };
-                Ok((release.version, release.body))
-            })
-            .await;
-
-        let (version, body) = match result {
-            Ok(Ok(pair)) => pair,
-            Ok(Err(err)) => {
-                tracing::warn!(error = ?err, "what's-new: failed to fetch release notes");
-                return;
-            }
-            Err(join_err) => {
-                tracing::error!(error = ?join_err, "what's-new: fetch task panicked");
-                return;
-            }
-        };
-        tracing::info!(version, "what's-new: got release, opening dialog");
-
+    cx.defer(move |cx| {
         let update_result = window.update(cx, move |_root, window, cx| {
             window.defer(cx, move |window, cx| {
                 window.open_dialog(cx, move |dialog, window, cx| {
@@ -444,7 +526,7 @@ fn fetch_and_show_whats_new(
                     });
                     let max_content_h = window.viewport_size().height * 0.6;
                     dialog
-                        .title(format!("What's new in v{version}"))
+                        .title(format!("What's new in {version}"))
                         .alert()
                         .w(px(560.))
                         .child(
@@ -460,8 +542,7 @@ fn fetch_and_show_whats_new(
         if let Err(err) = update_result {
             tracing::error!(error = ?err, "what's-new: window.update failed");
         }
-    })
-    .detach();
+    });
 }
 
 #[cfg(test)]

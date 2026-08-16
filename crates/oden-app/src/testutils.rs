@@ -4,7 +4,7 @@ use crate::app_settings::AppSettingsState;
 use crate::root::AppRoot;
 use crate::state::{AppMode, SelectedIdState};
 use crate::store::ItemStore;
-use crate::updater::UpdateState;
+use crate::updater::{ChangelogState, UpdateState};
 
 pub fn setup(
     cx: &mut TestAppContext,
@@ -17,6 +17,7 @@ pub fn setup(
         gpui_component::init(cx);
         AppSettingsState::init_default(cx);
         UpdateState::init(cx);
+        ChangelogState::init_default(cx);
         ItemStore::mock_store(cx);
         let window = cx
             .open_window(WindowOptions::default(), |window, cx| {
