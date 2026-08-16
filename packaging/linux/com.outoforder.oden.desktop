@@ -1,0 +1,9 @@
+[Desktop Entry]
+Type=Application
+Name=Oden
+Comment=Store commands, snippets, and notes and navigate them as a knowledge graph
+Exec=oden
+Icon=com.outoforder.oden
+Terminal=false
+Categories=Utility;Office;
+StartupWMClass=oden

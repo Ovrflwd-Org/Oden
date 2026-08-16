@@ -1,5 +1,10 @@
-use gpui::{AppContext, Context, Entity, Render, Styled, Subscription, Window, px};
+use comrak_gpui::render_document;
+use gpui::{
+    AppContext, Context, Entity, ParentElement, Render, Styled, Subscription, Window, div, px,
+};
+use gpui_component::ActiveTheme;
 use gpui_component::input::{Input, InputState};
+use gpui_component::scroll::ScrollableElement;
 use uuid::Uuid;
 
 use crate::models::Item;
@@ -22,6 +27,9 @@ impl EditorView {
                 .multi_line(true)
                 .code_editor("markdown")
                 .searchable(true)
+                // this is essential so the layout does not break
+                // if the text is too long.
+                .soft_wrap(true)
                 .line_number(true)
         });
         let _selected_id_state_sub = cx.observe_in(
@@ -50,10 +58,39 @@ impl EditorView {
 }
 
 impl Render for EditorView {
-    fn render(&mut self, _window: &mut Window, _cx: &mut Context<Self>) -> impl gpui::IntoElement {
-        Input::new(&self.input_state)
-            .border(px(0.0))
-            .font_family("JetBrainsMono Nerd Font")
+    fn render(&mut self, _window: &mut Window, cx: &mut Context<Self>) -> impl gpui::IntoElement {
+        let content = self.input_state.read(cx).value();
+        let theme = cx.theme();
+        div()
+            .flex()
+            .flex_row()
+            .size_full()
+            .overflow_hidden()
+            .child(
+                div()
+                    // 50% split when we set flex_1 with two children.
+                    .flex_1()
+                    // min_w_0 so width does not interfere with the split.
+                    .w_0()
+                    .min_w_0()
+                    .overflow_hidden()
+                    .border_r(px(1.))
+                    .border_color(theme.border)
+                    .child(
+                        Input::new(&self.input_state)
+                            .h_full()
+                            .border(px(0.))
+                            .font_family("JetBrainsMono Nerd Font"),
+                    ),
+            )
+            .child(
+                div().flex_1().w_0().min_w_0().overflow_hidden().child(
+                    div()
+                        .size_full()
+                        .overflow_y_scrollbar()
+                        .child(render_document(content.as_ref(), cx)),
+                ),
+            )
     }
 }
 

@@ -1,0 +1,31 @@
+<?xml version="1.0" encoding="UTF-8"?>
+<!--
+  TODO(license): Add a real LICENSE file
+-->
+<component type="desktop-application">
+  <id>com.outoforder.oden</id>
+  <name>Oden</name>
+  <summary>Your commands, snippets, and notes as a navigable knowledge graph</summary>
+  <metadata_license>CC0-1.0</metadata_license>
+  <project_license>GNU GPL V3</project_license>
+  <developer id="com.outoforder">
+    <name>out-of-order</name>
+  </developer>
+  <description>
+    <p>
+      Oden puts your commands, snippets, and notes somewhere better than your
+      head. Store everything in one place, link related pieces together, and
+      navigate your own knowledge graph, so you stop Googling the same thing
+      twice.
+    </p>
+  </description>
+  <launchable type="desktop-id">com.outoforder.oden.desktop</launchable>
+  <url type="homepage">https://github.com/out-of-order/oden</url>
+  <url type="bugtracker">https://github.com/out-of-order/oden/issues</url>
+  <content_rating type="oars-1.1"/>
+  <releases>
+    <release version="@VERSION@" date="@DATE@">
+      <url>https://github.com/out-of-order/oden/releases/tag/oden-v@VERSION@</url>
+    </release>
+  </releases>
+</component>

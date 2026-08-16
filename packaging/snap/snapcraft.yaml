@@ -1,0 +1,36 @@
+name: oden
+version: "@VERSION@"
+summary: Your commands, snippets, and notes as a navigable knowledge graph
+description: |
+  Oden puts your commands, snippets, and notes somewhere better than your
+  head. Store everything in one place, link related pieces together, and
+  navigate your own knowledge graph, so you stop Googling the same thing
+  twice.
+base: core24
+confinement: strict
+grade: stable
+
+apps:
+  oden:
+    command: bin/oden
+    extensions: [gnome]
+    plugs:
+      - desktop
+      - desktop-legacy
+      - wayland
+      - x11
+      - opengl
+      - network
+
+parts:
+  oden:
+    plugin: dump
+    source: .
+    organize:
+      bin/oden: bin/oden
+      com.outoforder.oden.desktop: usr/share/applications/oden.desktop
+      icon.png: usr/share/icons/hicolor/512x512/apps/oden.png
+    stage:
+      - bin/oden
+      - usr/share/applications/oden.desktop
+      - usr/share/icons/hicolor/512x512/apps/oden.png

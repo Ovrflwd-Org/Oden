@@ -96,6 +96,7 @@ impl ListView {
         let model = repository.as_ref().create_item().await?;
         let item = Item::from(model);
         let item_id = item.id;
+        tracing::debug!(item_id = %item_id, "created new item");
         cx.update(|cx| {
             cx.update_global::<ItemStore, _>(|store, _app| {
                 store.items.insert(item_id, item);
@@ -320,7 +321,7 @@ impl Render for ListView {
                             state.issues.push(new_issue);
                             cx.notify();
                         });
-                        eprintln!("failed to add item: {err}");
+                        tracing::error!(error = ?err, "failed to add item");
                     }
                 })
                 .detach();
@@ -331,7 +332,7 @@ impl Render for ListView {
             .flex()
             .child(
                 div()
-                    .w_1_4()
+                    .w_1_5()
                     .border_r(px(1.0))
                     .border_color(border_color)
                     .flex()
@@ -395,7 +396,14 @@ impl Render for ListView {
                             .gap_5(),
                     ),
             )
-            .child(self.entities.editor.clone())
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .min_h_0()
+                    .overflow_hidden()
+                    .child(self.entities.editor.clone()),
+            )
     }
 }
 

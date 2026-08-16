@@ -2,6 +2,7 @@
 name = "oden"
 version = "0.7.1"
 edition = "2024"
+description = "Your commands, snippets, and notes as a navigable knowledge graph"
 
 [dependencies]
 gpui-component = { version = "0.5.1", features = ["tree-sitter-languages"] }
@@ -9,14 +10,76 @@ rust-embed = "8"
 serde = { version = "1", features = ["derive"] }
 serde_json = "1"
 schemars = { version = "1.2.1", features = ["uuid1"] }
+self_update = { version = "0.44", default-features = false, features = [
+    "reqwest",
+    "rustls",
+    "archive-tar",
+    "compression-flate2",
+    "archive-zip",
+    "compression-zip-deflate",
+] }
+reqwest = { version = "0.13", features = ["blocking", "json"] }
 oden-core = { path = "../oden-core" }
 oden-graph = { path = "../oden-graph" }
+comrak-gpui = { path = "../comrak-gpui/" }
 gpui.workspace = true
 anyhow.workspace= true
 async-trait.workspace = true
 tokio.workspace = true
 uuid.workspace = true
 chrono.workspace = true
+tracing.workspace = true
+tracing-subscriber.workspace = true
+tracing-appender.workspace = true
+directories = "6.0.0"
 [dev-dependencies]
 gpui = { version = "0.2.2", features = ["test-support"] }
 sea-orm = { version = "2.0.0-rc", default-features = false }
+tiny_http = "0.12"
+zip = "6"
+
+[target.'cfg(windows)'.build-dependencies]
+winresource = "0.1"
+
+# gpui 0.2.2's Windows backend leaves `Window::start_window_move()` an
+# unimplemented no-op (only the Linux backends override it), so the custom
+# titlebar's drag-to-move and its window-control buttons don't work through
+# gpui/gpui_component alone. `views/titlebar.rs` drives those directly via
+# raw Win32 calls instead ; see the `win32` module there.
+[target.'cfg(windows)'.dependencies]
+raw-window-handle = "0.6"
+windows = { version = "0.61", features = [
+    "Win32_Foundation",
+    "Win32_UI_WindowsAndMessaging",
+    "Win32_UI_Input_KeyboardAndMouse",
+] }
+
+# Linux packaging metadata 
+[package.metadata.deb]
+maintainer = "Mouhamad Al Mounayar <>"
+copyright = "2026, out-of-order"
+license-file = []
+extended-description = """\
+Oden puts your commands, snippets, and notes somewhere better than your \
+head. Store everything in one place, link related pieces together, and \
+navigate your own knowledge graph, so you stop Googling the same thing \
+twice."""
+section = "utils"
+priority = "optional"
+depends = "libc6, libfontconfig1, libxkbcommon0, libxkbcommon-x11-0, libvulkan1, libgl1, libegl1, libwayland-client0, libxcb-shape0, libxcb-xfixes0"
+assets = [
+    ["target/release/oden", "usr/bin/oden", "755"],
+    ["../../packaging/linux/com.outoforder.oden.desktop", "usr/share/applications/com.outoforder.oden.desktop", "644"],
+    ["../../packaging/linux/com.outoforder.oden.metainfo.xml", "usr/share/metainfo/com.outoforder.oden.metainfo.xml", "644"],
+    ["../../assets/icon-512.png", "usr/share/icons/hicolor/512x512/apps/com.outoforder.oden.png", "644"],
+]
+
+[package.metadata.generate-rpm]
+assets = [
+    { source = "target/release/oden", dest = "/usr/bin/oden", mode = "755" },
+    { source = "../../packaging/linux/com.outoforder.oden.desktop", dest = "/usr/share/applications/com.outoforder.oden.desktop", mode = "644" },
+    { source = "../../packaging/linux/com.outoforder.oden.metainfo.xml", dest = "/usr/share/metainfo/com.outoforder.oden.metainfo.xml", mode = "644" },
+    { source = "../../assets/icon-512.png", dest = "/usr/share/icons/hicolor/512x512/apps/com.outoforder.oden.png", mode = "644" },
+]
+license = "GNU GPL V3"
+

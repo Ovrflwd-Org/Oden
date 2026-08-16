@@ -28,6 +28,7 @@ fn get_db_path() -> Result<PathBuf> {
 #[cfg(debug_assertions)]
 // seeds the local database with mock data in debug mode.
 async fn seed_data_db(db: &DatabaseConnection) -> Result<()> {
+    tracing::debug!("seeding database with mock data (debug build)");
     item::Entity::delete_many().exec(db).await?;
     let now = Utc::now();
     let rows = vec![
@@ -67,16 +68,20 @@ async fn seed_data_db(db: &DatabaseConnection) -> Result<()> {
             modified_at: Set(now),
         },
     ];
+    let row_count = rows.len();
     for row in rows {
         row.insert(db).await?;
     }
+    tracing::debug!(count = row_count, "seeded database rows");
     Ok(())
 }
 
 // returns a sea_orm database connection.
 pub async fn setup_database() -> Result<DatabaseConnection> {
     let db_path = get_db_path()?;
+    tracing::info!(path = %db_path.display(), "opening database");
     if !db_path.exists() {
+        tracing::debug!("database file does not exist yet, creating it");
         fs::OpenOptions::new()
             .create(true)
             .write(true)
@@ -93,9 +98,11 @@ pub async fn setup_database() -> Result<DatabaseConnection> {
         .register(item::Entity)
         .sync(&db)
         .await?;
+    tracing::debug!("schema sync complete");
 
     #[cfg(debug_assertions)]
     seed_data_db(&db).await?;
 
+    tracing::info!("database ready");
     Ok(db)
 }

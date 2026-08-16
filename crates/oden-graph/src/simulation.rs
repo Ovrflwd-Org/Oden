@@ -77,6 +77,7 @@ impl Simulation {
     pub fn tick(&mut self) {
         self.alpha += (self.options.alpha_target - self.alpha) * self.options.alpha_decay;
         if self.alpha <= self.options.alpha_min {
+            tracing::debug!(alpha = self.alpha, "simulation converged, stopping");
             self.should_stop = true;
             return;
         }
