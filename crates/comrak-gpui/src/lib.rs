@@ -24,17 +24,31 @@ struct TextStyle {
     underline: Option<gpui::UnderlineStyle>,
     strikethrough: Option<gpui::StrikethroughStyle>,
 }
-// parses a markdown document using comrak and returns a
-// renderable gpui element
+
+#[derive(Default, Debug, Copy, Clone)]
+// a struct to store any context that needs to be
+// passed between parent and child nodes.
+// Now only used for BlockQuote, to change the text color
+// of a paragraph inside a blockquote.
+struct RenderingContext {
+    in_blockquote: bool,
+}
+
+/// parses a markdown document using comrak and returns a
+/// renderable gpui element
 pub fn render_document(document: &str, cx: &App) -> AnyElement {
     let arena = Arena::new();
     let mut options = Options::default();
     options.extension.tasklist = true;
     let root = parse_document(&arena, document, &options);
-    render_node(root, cx)
+    render_node(root, cx, RenderingContext::default())
 }
 
-fn render_block_for_children<'a>(node: &'a Node<'a, RefCell<Ast>>, cx: &App) -> Vec<AnyElement> {
+fn render_block_for_children<'a>(
+    node: &'a Node<'a, RefCell<Ast>>,
+    cx: &App,
+    render_context: RenderingContext,
+) -> Vec<AnyElement> {
     let children = node.children().collect::<Vec<_>>();
     node.children()
         .enumerate()
@@ -43,7 +57,7 @@ fn render_block_for_children<'a>(node: &'a Node<'a, RefCell<Ast>>, cx: &App) -> 
             let gap = if is_last { 0. } else { block_for_node(child) };
             div()
                 .pb(rems(gap))
-                .child(render_node(child, cx))
+                .child(render_node(child, cx, render_context))
                 .into_any_element()
         })
         .collect()
@@ -63,14 +77,18 @@ fn block_for_node(node: &Node<'_, RefCell<Ast>>) -> f32 {
 
 // recursively traverses the AST tree by using the children() method and maps
 // each child into a gpui element
-fn render_node<'a>(node: &'a Node<'a, RefCell<Ast>>, cx: &App) -> AnyElement {
+fn render_node<'a>(
+    node: &'a Node<'a, RefCell<Ast>>,
+    cx: &App,
+    render_cx: RenderingContext,
+) -> AnyElement {
     let theme = cx.theme();
     match &node.data().value {
         Document => div()
             .p_4()
             .gap_12()
             .size_full()
-            .children(render_block_for_children(node, cx))
+            .children(render_block_for_children(node, cx, render_cx))
             .into_any_element(),
         Heading(node_heading) => match node_heading.level {
             1 => div()
@@ -79,7 +97,7 @@ fn render_node<'a>(node: &'a Node<'a, RefCell<Ast>>, cx: &App) -> AnyElement {
                 .font_weight(FontWeight::BOLD)
                 .children(
                     node.children()
-                        .map(|node| render_node(node, cx))
+                        .map(|node| render_node(node, cx, render_cx))
                         .collect::<Vec<_>>(),
                 )
                 .into_any_element(),
@@ -89,7 +107,7 @@ fn render_node<'a>(node: &'a Node<'a, RefCell<Ast>>, cx: &App) -> AnyElement {
                 .font_weight(FontWeight::BOLD)
                 .children(
                     node.children()
-                        .map(|node| render_node(node, cx))
+                        .map(|node| render_node(node, cx, render_cx))
                         .collect::<Vec<_>>(),
                 )
                 .into_any_element(),
@@ -99,14 +117,14 @@ fn render_node<'a>(node: &'a Node<'a, RefCell<Ast>>, cx: &App) -> AnyElement {
                 .font_weight(FontWeight::BOLD)
                 .children(
                     node.children()
-                        .map(|node| render_node(node, cx))
+                        .map(|node| render_node(node, cx, render_cx))
                         .collect::<Vec<_>>(),
                 )
                 .into_any_element(),
             _ => div()
                 .children(
                     node.children()
-                        .map(|node| render_node(node, cx))
+                        .map(|node| render_node(node, cx, render_cx))
                         .collect::<Vec<_>>(),
                 )
                 .into_any_element(),
@@ -115,14 +133,15 @@ fn render_node<'a>(node: &'a Node<'a, RefCell<Ast>>, cx: &App) -> AnyElement {
             let mut text = String::new();
             let mut runs = vec![];
             let mut links = vec![];
-            collect_segments(
-                node,
-                &mut text,
-                &TextStyle::default(),
-                &mut runs,
-                &mut links,
-                theme,
-            );
+            let text_style = if render_cx.in_blockquote {
+                TextStyle {
+                    color: Some(theme.muted_foreground),
+                    ..Default::default()
+                }
+            } else {
+                TextStyle::default()
+            };
+            collect_segments(node, &mut text, &text_style, &mut runs, &mut links, theme);
             let ranges: Vec<Range<usize>> = links.iter().map(|link| link.range.clone()).collect();
             InteractiveText::new(
                 ElementId::Name(SharedString::from("md-paragraph")),
@@ -162,26 +181,30 @@ fn render_node<'a>(node: &'a Node<'a, RefCell<Ast>>, cx: &App) -> AnyElement {
                 )
                 .into_any_element()
         }
-        BlockQuote => div()
-            .flex()
-            .flex_col()
-            .p_2()
-            .border_l(px(2.))
-            .border_color(theme.border)
-            .text_color(theme.muted)
-            .bg(theme.muted)
-            .children(
-                node.children()
-                    .map(|node| render_node(node, cx))
-                    .collect::<Vec<_>>(),
-            )
-            .into_any_element(),
+        BlockQuote => {
+            let block_quote_render_cx = RenderingContext {
+                in_blockquote: true,
+            };
+            div()
+                .flex()
+                .flex_col()
+                .p_2()
+                .border_l(px(4.))
+                .border_color(theme.border)
+                .bg(theme.muted)
+                .children(
+                    node.children()
+                        .map(|node| render_node(node, cx, block_quote_render_cx))
+                        .collect::<Vec<_>>(),
+                )
+                .into_any_element()
+        }
         List(_) => div()
             .flex()
             .flex_col()
             .children(
                 node.children()
-                    .map(|node| render_node(node, cx))
+                    .map(|node| render_node(node, cx, render_cx))
                     .collect::<Vec<_>>(),
             )
             .into_any_element(),
@@ -200,7 +223,7 @@ fn render_node<'a>(node: &'a Node<'a, RefCell<Ast>>, cx: &App) -> AnyElement {
                     // text wrappers should have flex_1, so text wraps to available width.
                     div().flex_1().w_full().min_w_0().children(
                         node.children()
-                            .map(|node| render_node(node, cx))
+                            .map(|node| render_node(node, cx, render_cx))
                             .collect::<Vec<_>>(),
                     ),
                 )
@@ -214,7 +237,7 @@ fn render_node<'a>(node: &'a Node<'a, RefCell<Ast>>, cx: &App) -> AnyElement {
             .child(Checkbox::new("list-item-checkbox").checked(metadata.symbol.is_some()))
             .children(
                 node.children()
-                    .map(|node| render_node(node, cx))
+                    .map(|node| render_node(node, cx, render_cx))
                     .collect::<Vec<_>>(),
             )
             .into_any_element(),
