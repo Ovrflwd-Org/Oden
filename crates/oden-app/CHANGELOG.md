@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.8.0](https://github.com/out-of-order/oden/compare/oden-v0.7.1...oden-v0.8.0) (2026-08-27)
+
+
+### Features
+
+* add markdow-preview ([b7069d0](https://github.com/out-of-order/oden/commit/b7069d0e2934fcb7a36b647e68f0ff47e511c769))
+
 ## [0.7.1](https://github.com/out-of-order/oden/compare/oden-v0.7.0...oden-v0.7.1) (2026-07-26)
 
 
