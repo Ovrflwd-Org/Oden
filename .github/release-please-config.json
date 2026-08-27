@@ -11,6 +11,11 @@
     "crates/oden-graph": {
       "release-type": "rust",
       "component": "oden-graph"
+    },
+    "crates/comrak-gpui": {
+      "release-type": "rust",
+      "component": "comrak-gpui"
     }
+
   }
 }

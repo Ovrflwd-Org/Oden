@@ -1,5 +1,6 @@
 {
   "crates/oden-core": "0.3.0",
   "crates/oden-app": "0.7.1",
-  "crates/oden-graph": "0.2.0"
+  "crates/oden-graph": "0.2.0",
+  "crates/comrak-gpui": "0.1.0"
 }

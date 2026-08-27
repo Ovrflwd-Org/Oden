@@ -93,6 +93,8 @@ fn render_node<'a>(
         Heading(node_heading) => match node_heading.level {
             1 => div()
                 .text_2xl()
+                .border_b(px(1.))
+                .border_color(theme.border)
                 .text_color(cx.theme().primary)
                 .font_weight(FontWeight::BOLD)
                 .children(
@@ -105,6 +107,8 @@ fn render_node<'a>(
                 .text_xl()
                 .text_color(cx.theme().secondary_foreground)
                 .font_weight(FontWeight::BOLD)
+                .border_b(px(1.))
+                .border_color(theme.border)
                 .children(
                     node.children()
                         .map(|node| render_node(node, cx, render_cx))
@@ -114,6 +118,8 @@ fn render_node<'a>(
             3 => div()
                 .text_lg()
                 .text_color(cx.theme().accent_foreground)
+                .border_b(px(1.))
+                .border_color(theme.border)
                 .font_weight(FontWeight::BOLD)
                 .children(
                     node.children()
