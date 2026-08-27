@@ -331,7 +331,7 @@ impl Render for ListView {
             .flex()
             .child(
                 div()
-                    .w_1_4()
+                    .w_1_5()
                     .border_r(px(1.0))
                     .border_color(border_color)
                     .flex()
@@ -395,7 +395,14 @@ impl Render for ListView {
                             .gap_5(),
                     ),
             )
-            .child(self.entities.editor.clone())
+            .child(
+                div()
+                    .flex_1()
+                    .min_w_0()
+                    .min_h_0()
+                    .overflow_hidden()
+                    .child(self.entities.editor.clone()),
+            )
     }
 }
 
