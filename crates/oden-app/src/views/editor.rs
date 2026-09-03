@@ -1,7 +1,6 @@
 use comrak_gpui::render_document;
 use gpui::{
-    AppContext, Context, Entity, ParentElement, Render, SharedString, Styled, Subscription, Window,
-    div, px,
+    AppContext, Context, Entity, ParentElement, Render, Styled, Subscription, Window, div, px,
 };
 use gpui_component::ActiveTheme;
 use gpui_component::input::{Input, InputEvent, InputState};
@@ -9,6 +8,7 @@ use gpui_component::scroll::ScrollableElement;
 use tokio::sync::watch;
 use uuid::Uuid;
 
+use crate::inputvaluewatcher::InputValueWatcher;
 use crate::models::Item;
 use crate::state::SelectedIdState;
 use crate::store::ItemStore;
@@ -55,24 +55,26 @@ impl EditorView {
             window,
             move |view, input_state, event: &InputEvent, _window, cx| {
                 if let InputEvent::Change = event {
-                    let selected_id = view.selected_id_state.read(cx).selected_id.unwrap();
+                    let selected_id = view
+                        .selected_id_state
+                        .read(cx)
+                        .selected_id
+                        .unwrap_or_default();
                     let new_content = input_state.read(cx).value();
                     let store = ItemStore::get_mut(cx);
                     if let Some(item) = store.items.get_mut(&selected_id) {
                         item.content = new_content.clone();
                     }
-                    match store.watch_tx.get(&selected_id) {
-                        Some(tx) => {
-                            if let Err(_e) = tx.send(new_content.clone()) {
-                                let _rx = tx.subscribe();
-                                // respawn the task...
-                            };
-                        }
-                        None => {
-                            let (_tx, _rx) = watch::channel(new_content.clone());
-                            // start the task....
-                        }
+                    let needs_new_receiver = match store.watch_tx.get(&selected_id) {
+                        // TODO: log if an error is received here.
+                        Some(tx) => tx.send(new_content.clone()).is_err(),
+                        None => true,
                     };
+                    if needs_new_receiver {
+                        let (tx, rx) = watch::channel(new_content.clone());
+                        InputValueWatcher::spawn(rx);
+                        store.watch_tx.insert(selected_id, tx);
+                    }
                 }
             },
         );

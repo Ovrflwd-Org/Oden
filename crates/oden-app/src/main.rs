@@ -41,6 +41,7 @@ mod appstatus;
 #[cfg(debug_assertions)]
 mod fixtures;
 mod icons;
+mod inputvaluewatcher;
 mod models;
 mod repository;
 mod root;
