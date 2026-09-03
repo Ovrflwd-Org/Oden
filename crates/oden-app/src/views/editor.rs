@@ -1,10 +1,12 @@
 use comrak_gpui::render_document;
 use gpui::{
-    AppContext, Context, Entity, ParentElement, Render, Styled, Subscription, Window, div, px,
+    AppContext, Context, Entity, ParentElement, Render, SharedString, Styled, Subscription, Window,
+    div, px,
 };
 use gpui_component::ActiveTheme;
-use gpui_component::input::{Input, InputState};
+use gpui_component::input::{Input, InputEvent, InputState};
 use gpui_component::scroll::ScrollableElement;
+use tokio::sync::watch;
 use uuid::Uuid;
 
 use crate::models::Item;
@@ -13,7 +15,9 @@ use crate::store::ItemStore;
 
 pub struct EditorView {
     input_state: Entity<InputState>,
+    selected_id_state: Entity<SelectedIdState>,
     _selected_id_state_sub: Subscription,
+    _input_state_sub: Subscription,
 }
 
 impl EditorView {
@@ -46,8 +50,36 @@ impl EditorView {
                 });
             },
         );
+        let _input_state_sub = cx.subscribe_in(
+            &input_state,
+            window,
+            move |view, input_state, event: &InputEvent, _window, cx| {
+                if let InputEvent::Change = event {
+                    let selected_id = view.selected_id_state.read(cx).selected_id.unwrap();
+                    let new_content = input_state.read(cx).value();
+                    let store = ItemStore::get_mut(cx);
+                    if let Some(item) = store.items.get_mut(&selected_id) {
+                        item.content = new_content.clone();
+                    }
+                    match store.watch_tx.get(&selected_id) {
+                        Some(tx) => {
+                            if let Err(_e) = tx.send(new_content.clone()) {
+                                let _rx = tx.subscribe();
+                                // respawn the task...
+                            };
+                        }
+                        None => {
+                            let (_tx, _rx) = watch::channel(new_content.clone());
+                            // start the task....
+                        }
+                    };
+                }
+            },
+        );
         EditorView {
             input_state,
+            selected_id_state,
+            _input_state_sub,
             _selected_id_state_sub,
         }
     }

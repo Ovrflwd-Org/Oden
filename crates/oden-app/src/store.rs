@@ -2,16 +2,19 @@
 
 use std::collections::HashMap;
 
-use gpui::{App, AsyncApp, Global};
+use gpui::{App, AsyncApp, Global, SharedString};
 use gpui_component::link::Link;
 use oden_core::entities::item;
 use oden_core::repository::{ItemRepository, ItemRepositoryTrait};
+use tokio::sync::watch::Sender;
+use uuid::Uuid;
 
 #[cfg(any(test, debug_assertions))]
 use crate::fixtures::mock_items;
 use crate::models::Item;
 pub struct ItemStore {
     pub items: HashMap<uuid::Uuid, Item>,
+    pub watch_tx: HashMap<Uuid, Sender<SharedString>>,
     links: Vec<Link>,
 }
 
@@ -26,6 +29,7 @@ impl ItemStore {
     pub fn mock_store(cx: &mut App) {
         let mut store = ItemStore {
             items: HashMap::new(),
+            watch_tx: HashMap::new(),
             links: Vec::new(),
         };
         for item in mock_items() {
@@ -39,6 +43,7 @@ impl ItemStore {
         cx.update(move |cx| {
             let mut store = ItemStore {
                 items: HashMap::new(),
+                watch_tx: HashMap::new(),
                 links: Vec::new(),
             };
             for item in items {
