@@ -1,5 +1,5 @@
 use gpui::{
-    Context, CursorStyle, Entity, ParentElement, Render, SharedString, Styled, Subscription, Window,
+    Context, CursorStyle, ParentElement, Render, SharedString, Styled, Subscription, Window,
 };
 use gpui_component::{
     ActiveTheme, Icon, TitleBar,
@@ -14,27 +14,16 @@ use crate::{
 };
 
 pub(crate) struct Titlebar {
-    pub(crate) status_entity: Entity<AppStatus>,
     _status_entity_sub: Subscription,
 }
 
 impl Titlebar {
-    pub(crate) fn new(
-        cx: &mut Context<Self>,
-        window: &mut Window,
-        status_entity: Entity<AppStatus>,
-    ) -> Self {
-        let _status_entity_sub = cx.observe_in(
-            &status_entity,
-            window,
-            |_this, _status_entity, _window, cx| {
+    pub(crate) fn new(cx: &mut Context<Self>, window: &mut Window) -> Self {
+        let _status_entity_sub =
+            cx.observe_global_in::<AppStatus>(window, |_status_entity, _window, cx| {
                 cx.notify();
-            },
-        );
-        Self {
-            status_entity,
-            _status_entity_sub,
-        }
+            });
+        Self { _status_entity_sub }
     }
 }
 
@@ -47,14 +36,13 @@ impl Render for Titlebar {
         let muted = cx.theme().muted_foreground;
         let green = cx.theme().green_light;
         let red = cx.theme().red_light;
-        let total_issues_found: usize = self
-            .status_entity
-            .read(cx)
+        let status_entity = cx.global::<AppStatus>();
+        let total_issues_found: usize = status_entity
             .issues
             .iter()
             .filter(|issue| issue.issue_status == IssueStatus::Open)
             .count();
-        let message = if let Some(issue) = self.status_entity.read(cx).issues.first() {
+        let message = if let Some(issue) = status_entity.issues.first() {
             issue.message.chars().take(50).collect::<String>()
         } else {
             String::new()
@@ -97,9 +85,10 @@ mod tests {
     use std::sync::Arc;
 
     use gpui::TestAppContext;
-    use oden_core::entities::item;
     use oden_core::repository::ItemRepositoryTrait;
+    use oden_core::{entities::item, errors::UpdateItemError};
     use sea_orm::DbErr;
+    use uuid::Uuid;
 
     use crate::{
         actions::NewItem, appstatus::AppOperation, repository::AppRepository, testutils::setup,
@@ -119,6 +108,10 @@ mod tests {
             Err(DbErr::Custom(
                 "an error occurred when inserting an item".into(),
             ))
+        }
+
+        async fn update_item(&self, _id: Uuid, _content: String) -> Result<(), UpdateItemError> {
+            Ok(())
         }
     }
 

@@ -10,6 +10,7 @@ use uuid::Uuid;
 
 use crate::inputvaluewatcher::InputValueWatcher;
 use crate::models::Item;
+use crate::repository::AppRepository;
 use crate::state::SelectedIdState;
 use crate::store::ItemStore;
 
@@ -72,8 +73,9 @@ impl EditorView {
                     };
                     if needs_new_receiver {
                         let (tx, rx) = watch::channel(new_content.clone());
-                        InputValueWatcher::spawn(rx);
                         store.watch_tx.insert(selected_id, tx);
+                        let repository = cx.global::<AppRepository>().0.clone();
+                        InputValueWatcher::spawn(rx, selected_id, repository);
                     }
                 }
             },

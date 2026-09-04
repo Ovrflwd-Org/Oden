@@ -1,9 +1,12 @@
 use chrono::{DateTime, Utc};
+use gpui::{App, Global};
 use uuid::Uuid;
 
 pub(crate) struct AppStatus {
     pub(crate) issues: Vec<Issue>,
 }
+
+impl Global for AppStatus {}
 
 #[allow(dead_code)]
 pub(crate) struct Issue {
@@ -40,7 +43,7 @@ pub(crate) enum IssueStatus {
 }
 
 impl AppStatus {
-    pub(crate) fn init() -> Self {
-        Self { issues: Vec::new() }
+    pub(crate) fn init(cx: &mut App) {
+        cx.set_global(Self { issues: Vec::new() })
     }
 }

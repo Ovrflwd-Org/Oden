@@ -37,7 +37,6 @@ struct ListEntities {
     editor: Entity<EditorView>,
     list_state: Entity<ListState<ItemListDelegate>>,
     selected_id_state: Entity<SelectedIdState>,
-    app_status_entity: Entity<AppStatus>,
 }
 
 impl ListView {
@@ -46,15 +45,8 @@ impl ListView {
         cx: &mut Context<Self>,
         focus_handle: FocusHandle,
         selected_id_state: Entity<SelectedIdState>,
-        app_status_entity: Entity<AppStatus>,
     ) -> Self {
-        let entities = Self::build_entities(
-            window,
-            cx,
-            focus_handle.clone(),
-            selected_id_state,
-            app_status_entity,
-        );
+        let entities = Self::build_entities(window, cx, focus_handle.clone(), selected_id_state);
         let subscriptions: ListSubscriptions =
             Self::wire_subscriptions(window, cx, entities.clone());
         Self {
@@ -74,7 +66,6 @@ impl ListView {
         cx: &mut Context<Self>,
         focus_handle: FocusHandle,
         selected_id_state: Entity<SelectedIdState>,
-        app_status_entity: Entity<AppStatus>,
     ) -> ListEntities {
         let input_state = Self::build_input_state(window, cx);
         let list_state = Self::build_list_state(window, cx, focus_handle.clone());
@@ -84,7 +75,6 @@ impl ListView {
             editor,
             list_state,
             selected_id_state,
-            app_status_entity,
         }
     }
 
@@ -309,16 +299,14 @@ impl Render for ListView {
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(move |this, _action: &NewItem, _window, cx| {
                 let selected_id_state = this.entities.selected_id_state.clone();
-                let app_status_entity = this.entities.app_status_entity.clone();
                 let repository = cx.global::<AppRepository>().0.clone();
                 cx.spawn(async move |_this, cx| {
                     if let Err(err) = Self::add_empty_item(cx, repository, selected_id_state).await
                     {
-                        let _ = app_status_entity.update(cx, |state, cx| {
+                        let _ = cx.update_global::<AppStatus, ()>(|state, _cx| {
                             let new_issue =
                                 Issue::new(AppOperation::CreateNewItem, err.to_string());
                             state.issues.push(new_issue);
-                            cx.notify();
                         });
                         eprintln!("failed to add item: {err}");
                     }
@@ -418,6 +406,7 @@ mod tests {
     use chrono::Utc;
     use gpui::TestAppContext;
     use oden_core::entities::item;
+    use oden_core::errors::UpdateItemError;
     use oden_core::repository::ItemRepositoryTrait;
     use sea_orm::DbErr;
     use serde_json::json;
@@ -443,6 +432,10 @@ mod tests {
                 created_at: now,
                 modified_at: now,
             })
+        }
+
+        async fn update_item(&self, _id: Uuid, _content: String) -> Result<(), UpdateItemError> {
+            Ok(())
         }
     }
 

@@ -1,12 +1,19 @@
+use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::SharedString;
 use gpui::Timer;
+use oden_core::repository::ItemRepositoryTrait;
 use tokio::sync::watch::Receiver;
-pub struct InputValueWatcher {}
+use uuid::Uuid;
 
+pub struct InputValueWatcher;
 impl InputValueWatcher {
-    pub fn spawn(mut rx: Receiver<SharedString>) {
+    pub fn spawn(
+        mut rx: Receiver<SharedString>,
+        id: Uuid,
+        repository: Arc<dyn ItemRepositoryTrait + Send + Sync>,
+    ) {
         tokio::spawn(async move {
             loop {
                 if rx.changed().await.is_err() {
@@ -26,7 +33,7 @@ impl InputValueWatcher {
                 }
 
                 let content = rx.borrow_and_update().clone();
-                // TODO: persist to DB.
+                if let Err(_e) = repository.update_item(id, content.to_string()).await {};
             }
         });
     }
