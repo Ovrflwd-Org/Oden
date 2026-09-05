@@ -14,6 +14,8 @@ pub fn setup(
     cx.update(|cx| {
         gpui_component::init(cx);
         ItemStore::mock_store(cx);
+        crate::appstatus::AppStatus::init(cx);
+        crate::persistence::PersistenceStatus::init(cx);
         let window = cx
             .open_window(WindowOptions::default(), |window, cx| {
                 let selected_id_state: Entity<SelectedIdState> =

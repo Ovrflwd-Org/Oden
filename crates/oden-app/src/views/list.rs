@@ -304,9 +304,8 @@ impl Render for ListView {
                     if let Err(err) = Self::add_empty_item(cx, repository, selected_id_state).await
                     {
                         let _ = cx.update_global::<AppStatus, ()>(|state, _cx| {
-                            let new_issue =
-                                Issue::new(AppOperation::CreateNewItem, err.to_string());
-                            state.issues.push(new_issue);
+                            let new_issue = Issue::new(err.to_string());
+                            state.issues.insert(AppOperation::CreateNewItem, new_issue);
                         });
                         eprintln!("failed to add item: {err}");
                     }

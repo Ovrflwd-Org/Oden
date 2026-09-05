@@ -20,8 +20,8 @@ pub enum DbError {
 
 #[derive(Debug, Error)]
 pub enum UpdateItemError {
-    #[error("item not found")]
+    #[error("saving is broken")]
     NotFound,
-    #[error(transparent)]
+    #[error("saving is broken")]
     Db(#[from] sea_orm::DbErr),
 }

@@ -1,16 +1,19 @@
 use gpui::{
-    Context, CursorStyle, ParentElement, Render, SharedString, Styled, Subscription, Window,
+    AnyElement, Context, CursorStyle, IntoElement, ParentElement, Render, SharedString, Styled,
+    Subscription, Window, div,
 };
 use gpui_component::{
     ActiveTheme, Icon, TitleBar,
     button::{Button, ButtonVariants},
     h_flex,
     label::Label,
+    spinner::Spinner,
 };
 
 use crate::{
     appstatus::{AppStatus, IssueStatus},
     icons::IconName,
+    persistence::PersistenceStatus::{self, Failed, Idle, Saving},
 };
 
 pub(crate) struct Titlebar {
@@ -40,19 +43,14 @@ impl Render for Titlebar {
         let total_issues_found: usize = status_entity
             .issues
             .iter()
-            .filter(|issue| issue.issue_status == IssueStatus::Open)
+            .filter(|issue| issue.1.issue_status == IssueStatus::Open)
             .count();
-        let message = if let Some(issue) = status_entity.issues.first() {
-            issue.message.chars().take(50).collect::<String>()
-        } else {
-            String::new()
-        };
         let issue_label = if total_issues_found == 1 {
             "issue"
         } else {
             "issues"
         };
-        let status_message = format!("{} {} {}", total_issues_found, issue_label, message);
+        let status_message = format!("{} {}", total_issues_found, issue_label);
         let status_message = SharedString::from(status_message);
         let (icon_name, color) = if total_issues_found == 0 {
             (IconName::Check, green)
@@ -61,6 +59,7 @@ impl Render for Titlebar {
         };
         TitleBar::new()
             // render the status of the app.
+            .pr_4()
             .child(
                 h_flex().gap_2().child(SharedString::from("Oden")).child(
                     Button::new("issues")
@@ -77,6 +76,33 @@ impl Render for Titlebar {
                         .child(Label::new(status_message).text_color(muted)),
                 ),
             )
+            .child(render_persistence(cx))
+    }
+}
+
+fn render_persistence(cx: &gpui::prelude::Context<Titlebar>) -> AnyElement {
+    let persistence = cx.global::<PersistenceStatus>();
+    let red = cx.theme().red_light;
+    let muted = cx.theme().muted_foreground;
+    match persistence {
+        Idle => Label::new("synced").text_color(muted).into_any_element(),
+        Saving => h_flex()
+            .child(Spinner::new().color(muted))
+            .child(Label::new("syncing").text_color(muted))
+            .text_color(muted)
+            .gap_1()
+            .items_center()
+            .into_any_element(),
+        Failed => h_flex()
+            .child(Icon::new(IconName::Close).text_color(red))
+            .child(
+                div()
+                    .child(Label::new("out of sync").text_color(muted))
+                    .text_color(muted),
+            )
+            .gap_1()
+            .items_center()
+            .into_any_element(),
     }
 }
 
@@ -90,9 +116,8 @@ mod tests {
     use sea_orm::DbErr;
     use uuid::Uuid;
 
-    use crate::{
-        actions::NewItem, appstatus::AppOperation, repository::AppRepository, testutils::setup,
-    };
+    use crate::appstatus::AppStatus;
+    use crate::{actions::NewItem, repository::AppRepository, testutils::setup};
 
     use async_trait::async_trait;
 
@@ -131,14 +156,13 @@ mod tests {
             .unwrap();
         cx.run_until_parked();
         window
-            .update(cx, |root, _window, cx| {
-                let status_entity = root.titlebar.read(cx).status_entity.clone();
+            .update(cx, |_root, _window, cx| {
+                let status_entity = cx.global::<AppStatus>();
                 let issue = status_entity
-                    .read(cx)
                     .issues
-                    .first()
+                    .values()
+                    .next()
                     .expect("one issue should have been created");
-                assert_eq!(issue.operation, AppOperation::CreateNewItem);
                 assert_eq!(
                     issue.message,
                     "Custom Error: an error occurred when inserting an item"

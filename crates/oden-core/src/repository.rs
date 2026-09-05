@@ -80,6 +80,7 @@ impl ItemRepositoryTrait for ItemRepository {
         if let Some(item) = item_maybe {
             let mut item: item::ActiveModel = item.into();
             item.content = Set(content);
+            item.update(&self.db).await?;
         } else {
             return Err(UpdateItemError::NotFound);
         }
