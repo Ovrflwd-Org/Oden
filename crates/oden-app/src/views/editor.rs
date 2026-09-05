@@ -13,7 +13,7 @@ use uuid::Uuid;
 use crate::appstatus::{AppOperation, AppStatus, Issue};
 use crate::inputvaluewatcher::InputValueWatcher;
 use crate::models::Item;
-use crate::persistence::PersistenceStatus;
+use crate::persistence::{PersistencePerNote, PersistenceStatus};
 use crate::repository::AppRepository;
 use crate::state::SelectedIdState;
 use crate::store::ItemStore;
@@ -60,11 +60,9 @@ impl EditorView {
             window,
             move |view, input_state, event: &InputEvent, _window, cx| {
                 if let InputEvent::Change = event {
-                    let selected_id = view
-                        .selected_id_state
-                        .read(cx)
-                        .selected_id
-                        .unwrap_or_default();
+                    let Some(selected_id) = view.selected_id_state.read(cx).selected_id else {
+                        return;
+                    };
                     let new_content = input_state.read(cx).value();
                     let store = ItemStore::get_mut(cx);
                     if let Some(item) = store.items.get_mut(&selected_id) {
@@ -98,9 +96,11 @@ impl EditorView {
                         cx.spawn(async move |_this, cx| {
                             while let Some(persistence_value) = persistence_rx.recv().await {
                                 let _ = cx.update(|cx| {
-                                    cx.update_global::<PersistenceStatus, ()>(
-                                        |persistence_status, _cx| {
-                                            *persistence_status = persistence_value;
+                                    cx.update_global::<PersistencePerNote, ()>(
+                                        |persistence_per_note, _cx| {
+                                            persistence_per_note
+                                                .0
+                                                .insert(selected_id, persistence_value);
                                         },
                                     )
                                 });
@@ -128,6 +128,11 @@ impl EditorView {
 
     fn get_item_for_selected_id(cx: &mut Context<Self>, selected_id: Uuid) -> Option<Item> {
         ItemStore::get(cx).items().get(&selected_id).cloned()
+    }
+
+    #[cfg(test)]
+    pub(crate) fn input_state(&self) -> Entity<InputState> {
+        self.input_state.clone()
     }
 }
 
@@ -170,13 +175,44 @@ impl Render for EditorView {
 
 #[cfg(test)]
 mod tests {
+    use std::sync::Arc;
+
     use crate::actions::SelectItem;
+    use crate::repository::AppRepository;
     use crate::store::ItemStore;
     use crate::testutils::setup;
+    use async_trait::async_trait;
+    use oden_core::entities::item;
+    use oden_core::errors::UpdateItemError;
+    use oden_core::repository::ItemRepositoryTrait;
+    use sea_orm::DbErr;
+    use uuid::Uuid;
+
+    struct MockItemRepository;
+
+    #[async_trait]
+    impl ItemRepositoryTrait for MockItemRepository {
+        async fn find_all(&self) -> Result<Vec<item::Model>, DbErr> {
+            Ok(vec![])
+        }
+
+        async fn create_item(&self) -> Result<item::Model, DbErr> {
+            Err(DbErr::Custom("not used in this test".into()))
+        }
+
+        async fn update_item(&self, _id: Uuid, _content: String) -> Result<(), UpdateItemError> {
+            Ok(())
+        }
+    }
 
     #[gpui::test]
     fn test_editor_updates_on_select(cx: &mut gpui::TestAppContext) {
-        let (window, _app_mode_state, _selected_id_state) = setup(cx);
+        let (window, _app_mode_state, _selected_id_state, _tokio_guard) = setup(cx);
+        cx.update(|cx| {
+            let repository: Arc<dyn ItemRepositoryTrait + Send + Sync> =
+                Arc::new(MockItemRepository);
+            cx.set_global(AppRepository(repository));
+        });
         let selected_id = cx.update(|cx| {
             ItemStore::get(cx)
                 .items()

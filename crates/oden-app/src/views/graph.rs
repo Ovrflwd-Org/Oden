@@ -19,7 +19,7 @@ pub struct GraphView {
 #[cfg(debug_assertions)]
 impl GraphView {
     pub fn new() -> Self {
-        let graph: Graph = construct_graph(2, fully_connected);
+        let graph: Graph = construct_graph(50, fully_connected);
         let simulation = Simulation::new(graph).with_force(Box::new(LinkForce::default()));
         Self { simulation }
     }

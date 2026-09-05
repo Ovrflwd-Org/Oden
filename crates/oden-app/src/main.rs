@@ -32,7 +32,7 @@ impl AssetSource for Assets {
 }
 
 use crate::appstatus::AppStatus;
-use crate::persistence::PersistenceStatus;
+use crate::persistence::PersistencePerNote;
 use crate::repository::AppRepository;
 use crate::state::{AppMode, SelectedIdState};
 use crate::{root::AppRoot, store::ItemStore};
@@ -62,7 +62,7 @@ async fn main() -> anyhow::Result<()> {
         )]);
         gpui_component::init(cx);
         AppStatus::init(cx);
-        PersistenceStatus::init(cx);
+        PersistencePerNote::init(cx);
         setup_theme(cx);
         let window_options = WindowOptions {
             titlebar: Some(TitleBar::title_bar_options()),

@@ -220,7 +220,7 @@ mod tests {
 
     #[gpui::test]
     fn test_icon_rail_navigation(cx: &mut TestAppContext) {
-        let (window, app_mode_state, _selected_id_state) = setup(cx);
+        let (window, app_mode_state, _selected_id_state, _tokio_guard) = setup(cx);
 
         let cases: Vec<(Box<dyn gpui::Action>, AppMode)> = vec![
             (Box::new(actions::SearchMode), AppMode::Search),

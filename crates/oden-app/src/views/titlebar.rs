@@ -13,11 +13,15 @@ use gpui_component::{
 use crate::{
     appstatus::{AppStatus, IssueStatus},
     icons::IconName,
-    persistence::PersistenceStatus::{self, Failed, Idle, Saving},
+    persistence::{
+        PersistencePerNote,
+        PersistenceStatus::{self, Failed, Idle, Saving},
+    },
 };
 
 pub(crate) struct Titlebar {
     _status_entity_sub: Subscription,
+    persistence_status: PersistenceStatus,
 }
 
 impl Titlebar {
@@ -26,7 +30,46 @@ impl Titlebar {
             cx.observe_global_in::<AppStatus>(window, |_status_entity, _window, cx| {
                 cx.notify();
             });
-        Self { _status_entity_sub }
+        Self {
+            _status_entity_sub,
+            persistence_status: PersistenceStatus::Idle,
+        }
+    }
+
+    fn compute_persistence_status(&mut self, cx: &gpui::prelude::Context<Titlebar>) {
+        let persistence_per_note = cx.global::<PersistencePerNote>();
+        self.persistence_status = persistence_per_note
+            .0
+            .values()
+            .copied()
+            .reduce(|a, b| a.merge(&b))
+            .unwrap_or(PersistenceStatus::Idle);
+    }
+
+    fn render_persistence(&mut self, cx: &gpui::prelude::Context<Titlebar>) -> AnyElement {
+        let red = cx.theme().red_light;
+        let muted = cx.theme().muted_foreground;
+        self.compute_persistence_status(cx);
+        match self.persistence_status {
+            Idle => Label::new("synced").text_color(muted).into_any_element(),
+            Saving => h_flex()
+                .child(Spinner::new().color(muted))
+                .child(Label::new("syncing").text_color(muted))
+                .text_color(muted)
+                .gap_1()
+                .items_center()
+                .into_any_element(),
+            Failed => h_flex()
+                .child(Icon::new(IconName::Close).text_color(red))
+                .child(
+                    div()
+                        .child(Label::new("out of sync").text_color(muted))
+                        .text_color(muted),
+                )
+                .gap_1()
+                .items_center()
+                .into_any_element(),
+        }
     }
 }
 
@@ -76,39 +119,15 @@ impl Render for Titlebar {
                         .child(Label::new(status_message).text_color(muted)),
                 ),
             )
-            .child(render_persistence(cx))
-    }
-}
-
-fn render_persistence(cx: &gpui::prelude::Context<Titlebar>) -> AnyElement {
-    let persistence = cx.global::<PersistenceStatus>();
-    let red = cx.theme().red_light;
-    let muted = cx.theme().muted_foreground;
-    match persistence {
-        Idle => Label::new("synced").text_color(muted).into_any_element(),
-        Saving => h_flex()
-            .child(Spinner::new().color(muted))
-            .child(Label::new("syncing").text_color(muted))
-            .text_color(muted)
-            .gap_1()
-            .items_center()
-            .into_any_element(),
-        Failed => h_flex()
-            .child(Icon::new(IconName::Close).text_color(red))
-            .child(
-                div()
-                    .child(Label::new("out of sync").text_color(muted))
-                    .text_color(muted),
-            )
-            .gap_1()
-            .items_center()
-            .into_any_element(),
+            .child(self.render_persistence(cx))
     }
 }
 
 #[cfg(test)]
 mod tests {
+    use std::assert_matches;
     use std::sync::Arc;
+    use std::time::Duration;
 
     use gpui::TestAppContext;
     use oden_core::repository::ItemRepositoryTrait;
@@ -117,7 +136,13 @@ mod tests {
     use uuid::Uuid;
 
     use crate::appstatus::AppStatus;
-    use crate::{actions::NewItem, repository::AppRepository, testutils::setup};
+    use crate::persistence::PersistenceStatus;
+    use crate::{
+        actions::{NewItem, SelectItem},
+        repository::AppRepository,
+        store::ItemStore,
+        testutils::setup,
+    };
 
     use async_trait::async_trait;
 
@@ -136,13 +161,13 @@ mod tests {
         }
 
         async fn update_item(&self, _id: Uuid, _content: String) -> Result<(), UpdateItemError> {
-            Ok(())
+            Err(UpdateItemError::NotFound)
         }
     }
 
     #[gpui::test]
     fn test_titlebar_status_change_on_issues(cx: &mut TestAppContext) {
-        let (window, _app_mode_state, _selected_id_state) = setup(cx);
+        let (window, _app_mode_state, _selected_id_state, _tokio_guard) = setup(cx);
         cx.update(|cx| {
             let failing_repository: Arc<dyn ItemRepositoryTrait + Send + Sync> =
                 Arc::new(FailingItemRepository {});
@@ -169,5 +194,46 @@ mod tests {
                 );
             })
             .unwrap();
+    }
+
+    #[gpui::test]
+    fn test_titlebar_persistence_status_failed(cx: &mut TestAppContext) {
+        let (window, _app_mode_state, _selected_id_state, _tokio_guard) = setup(cx);
+        let failing_repository: Arc<dyn ItemRepositoryTrait + Send + Sync> =
+            Arc::new(FailingItemRepository {});
+        cx.set_global(AppRepository(failing_repository));
+        let target_id = cx.update(|cx| {
+            ItemStore::get(cx)
+                .items()
+                .keys()
+                .next()
+                .copied()
+                .expect("item store should contain at least one item")
+        });
+        window
+            .update(cx, |root, window, cx| {
+                root.focus.focus(window);
+                window.dispatch_action(
+                    Box::new(SelectItem {
+                        selected_id: target_id,
+                    }),
+                    cx,
+                );
+                let input_state = root.list_view.read(cx).editor().read(cx).input_state();
+                input_state.update(cx, move |input_state, cx| {
+                    input_state.set_value("test", window, cx);
+                });
+            })
+            .unwrap();
+        std::thread::sleep(Duration::from_millis(1200));
+        window
+            .update(cx, |root, _window, cx| {
+                assert_matches!(
+                    root.titlebar.read(cx).persistence_status,
+                    PersistenceStatus::Idle
+                );
+            })
+            .unwrap();
+        cx.run_until_parked();
     }
 }

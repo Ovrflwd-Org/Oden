@@ -28,12 +28,12 @@ use crate::{models::Item, views::editor::EditorView};
 pub(crate) struct ListView {
     _subscriptions: ListSubscriptions,
     pub(crate) focus_handle: FocusHandle,
-    entities: ListEntities,
+    pub(crate) entities: ListEntities,
 }
 
 #[derive(Clone)]
-struct ListEntities {
-    input_state: Entity<InputState>,
+pub(crate) struct ListEntities {
+    pub(crate) input_state: Entity<InputState>,
     editor: Entity<EditorView>,
     list_state: Entity<ListState<ItemListDelegate>>,
     selected_id_state: Entity<SelectedIdState>,
@@ -440,7 +440,12 @@ mod tests {
 
     #[gpui::test]
     fn test_list_items_navigation(cx: &mut TestAppContext) {
-        let (window, _app_mode_state, selected_id_state) = setup(cx);
+        let (window, _app_mode_state, selected_id_state, _tokio_guard) = setup(cx);
+        cx.update(|cx| {
+            let repository: Arc<dyn ItemRepositoryTrait + Send + Sync> =
+                Arc::new(MockItemRepository);
+            cx.set_global(AppRepository(repository));
+        });
         let uuid = Uuid::new_v4();
         window
             .update(cx, |root, window, cx| {
@@ -459,7 +464,7 @@ mod tests {
 
     #[gpui::test]
     fn test_new_item_creation(cx: &mut TestAppContext) {
-        let (window, _app_mode_state, selected_id_state) = setup(cx);
+        let (window, _app_mode_state, selected_id_state, _tokio_guard) = setup(cx);
         cx.update(|cx| {
             let repository: Arc<dyn ItemRepositoryTrait + Send + Sync> =
                 Arc::new(MockItemRepository);
@@ -486,7 +491,12 @@ mod tests {
 
     #[gpui::test]
     fn test_selected_id_subscription(cx: &mut TestAppContext) {
-        let (window, _app_mode_state, selected_id_state) = setup(cx);
+        let (window, _app_mode_state, selected_id_state, _tokio_guard) = setup(cx);
+        cx.update(|cx| {
+            let repository: Arc<dyn ItemRepositoryTrait + Send + Sync> =
+                Arc::new(MockItemRepository);
+            cx.set_global(AppRepository(repository));
+        });
         let target_id = cx.update(|cx| {
             ItemStore::get(cx)
                 .items()
