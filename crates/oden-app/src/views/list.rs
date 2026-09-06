@@ -28,16 +28,15 @@ use crate::{models::Item, views::editor::EditorView};
 pub(crate) struct ListView {
     _subscriptions: ListSubscriptions,
     pub(crate) focus_handle: FocusHandle,
-    entities: ListEntities,
+    pub(crate) entities: ListEntities,
 }
 
 #[derive(Clone)]
-struct ListEntities {
-    input_state: Entity<InputState>,
+pub(crate) struct ListEntities {
+    pub(crate) input_state: Entity<InputState>,
     editor: Entity<EditorView>,
     list_state: Entity<ListState<ItemListDelegate>>,
     selected_id_state: Entity<SelectedIdState>,
-    app_status_entity: Entity<AppStatus>,
 }
 
 impl ListView {
@@ -46,15 +45,8 @@ impl ListView {
         cx: &mut Context<Self>,
         focus_handle: FocusHandle,
         selected_id_state: Entity<SelectedIdState>,
-        app_status_entity: Entity<AppStatus>,
     ) -> Self {
-        let entities = Self::build_entities(
-            window,
-            cx,
-            focus_handle.clone(),
-            selected_id_state,
-            app_status_entity,
-        );
+        let entities = Self::build_entities(window, cx, focus_handle.clone(), selected_id_state);
         let subscriptions: ListSubscriptions =
             Self::wire_subscriptions(window, cx, entities.clone());
         Self {
@@ -74,7 +66,6 @@ impl ListView {
         cx: &mut Context<Self>,
         focus_handle: FocusHandle,
         selected_id_state: Entity<SelectedIdState>,
-        app_status_entity: Entity<AppStatus>,
     ) -> ListEntities {
         let input_state = Self::build_input_state(window, cx);
         let list_state = Self::build_list_state(window, cx, focus_handle.clone());
@@ -84,7 +75,6 @@ impl ListView {
             editor,
             list_state,
             selected_id_state,
-            app_status_entity,
         }
     }
 
@@ -309,16 +299,13 @@ impl Render for ListView {
             .track_focus(&self.focus_handle)
             .on_action(cx.listener(move |this, _action: &NewItem, _window, cx| {
                 let selected_id_state = this.entities.selected_id_state.clone();
-                let app_status_entity = this.entities.app_status_entity.clone();
                 let repository = cx.global::<AppRepository>().0.clone();
                 cx.spawn(async move |_this, cx| {
                     if let Err(err) = Self::add_empty_item(cx, repository, selected_id_state).await
                     {
-                        let _ = app_status_entity.update(cx, |state, cx| {
-                            let new_issue =
-                                Issue::new(AppOperation::CreateNewItem, err.to_string());
-                            state.issues.push(new_issue);
-                            cx.notify();
+                        let _ = cx.update_global::<AppStatus, ()>(|state, _cx| {
+                            let new_issue = Issue::new(err.to_string());
+                            state.issues.insert(AppOperation::CreateNewItem, new_issue);
                         });
                         eprintln!("failed to add item: {err}");
                     }
@@ -418,6 +405,7 @@ mod tests {
     use chrono::Utc;
     use gpui::TestAppContext;
     use oden_core::entities::item;
+    use oden_core::errors::UpdateItemError;
     use oden_core::repository::ItemRepositoryTrait;
     use sea_orm::DbErr;
     use serde_json::json;
@@ -444,11 +432,20 @@ mod tests {
                 modified_at: now,
             })
         }
+
+        async fn update_item(&self, _id: Uuid, _content: String) -> Result<(), UpdateItemError> {
+            Ok(())
+        }
     }
 
     #[gpui::test]
     fn test_list_items_navigation(cx: &mut TestAppContext) {
-        let (window, _app_mode_state, selected_id_state) = setup(cx);
+        let (window, _app_mode_state, selected_id_state, _tokio_guard) = setup(cx);
+        cx.update(|cx| {
+            let repository: Arc<dyn ItemRepositoryTrait + Send + Sync> =
+                Arc::new(MockItemRepository);
+            cx.set_global(AppRepository(repository));
+        });
         let uuid = Uuid::new_v4();
         window
             .update(cx, |root, window, cx| {
@@ -467,7 +464,7 @@ mod tests {
 
     #[gpui::test]
     fn test_new_item_creation(cx: &mut TestAppContext) {
-        let (window, _app_mode_state, selected_id_state) = setup(cx);
+        let (window, _app_mode_state, selected_id_state, _tokio_guard) = setup(cx);
         cx.update(|cx| {
             let repository: Arc<dyn ItemRepositoryTrait + Send + Sync> =
                 Arc::new(MockItemRepository);
@@ -494,7 +491,12 @@ mod tests {
 
     #[gpui::test]
     fn test_selected_id_subscription(cx: &mut TestAppContext) {
-        let (window, _app_mode_state, selected_id_state) = setup(cx);
+        let (window, _app_mode_state, selected_id_state, _tokio_guard) = setup(cx);
+        cx.update(|cx| {
+            let repository: Arc<dyn ItemRepositoryTrait + Send + Sync> =
+                Arc::new(MockItemRepository);
+            cx.set_global(AppRepository(repository));
+        });
         let target_id = cx.update(|cx| {
             ItemStore::get(cx)
                 .items()

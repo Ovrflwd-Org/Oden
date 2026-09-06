@@ -17,3 +17,11 @@ pub enum DbError {
     #[error("invalid db path")]
     InvalidPath,
 }
+
+#[derive(Debug, Error)]
+pub enum UpdateItemError {
+    #[error("item was not found")]
+    NotFound,
+    #[error(transparent)]
+    Db(#[from] sea_orm::DbErr),
+}

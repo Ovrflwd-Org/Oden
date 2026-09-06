@@ -14,7 +14,6 @@ use uuid::Uuid;
 use crate::views::graph::GraphView;
 use crate::{
     actions::{self, GraphMode, ListMode, SearchMode, SelectItem, Settings},
-    appstatus::AppStatus,
     icons::IconName,
     state::{AppMode, SelectedIdState},
     views::{list::ListView, titlebar::Titlebar},
@@ -40,24 +39,16 @@ impl AppRoot {
         window: &mut gpui::Window,
         cx: &mut Context<Self>,
     ) -> Self {
-        let status_entity = cx.new(|_| AppStatus::init());
         Self {
             _state_sub: cx.observe(&app_mode, |_, _, cx| {
                 cx.notify();
             }),
             app_mode: app_mode.clone(),
-            list_view: cx.new(|cx| {
-                ListView::new(
-                    window,
-                    cx,
-                    cx.focus_handle(),
-                    selected_id_state.clone(),
-                    status_entity.clone(),
-                )
-            }),
+            list_view: cx
+                .new(|cx| ListView::new(window, cx, cx.focus_handle(), selected_id_state.clone())),
             #[cfg(debug_assertions)]
             graph_view: cx.new(|_| GraphView::new()),
-            titlebar: cx.new(|cx| Titlebar::new(cx, window, status_entity)),
+            titlebar: cx.new(|cx| Titlebar::new(cx, window)),
             selected_id_state,
             focus: cx.focus_handle(),
         }
@@ -229,7 +220,7 @@ mod tests {
 
     #[gpui::test]
     fn test_icon_rail_navigation(cx: &mut TestAppContext) {
-        let (window, app_mode_state, _selected_id_state) = setup(cx);
+        let (window, app_mode_state, _selected_id_state, _tokio_guard) = setup(cx);
 
         let cases: Vec<(Box<dyn gpui::Action>, AppMode)> = vec![
             (Box::new(actions::SearchMode), AppMode::Search),

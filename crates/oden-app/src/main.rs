@@ -31,6 +31,8 @@ impl AssetSource for Assets {
     }
 }
 
+use crate::appstatus::AppStatus;
+use crate::persistence::PersistencePerNote;
 use crate::repository::AppRepository;
 use crate::state::{AppMode, SelectedIdState};
 use crate::{root::AppRoot, store::ItemStore};
@@ -41,7 +43,9 @@ mod appstatus;
 #[cfg(debug_assertions)]
 mod fixtures;
 mod icons;
+mod inputvaluewatcher;
 mod models;
+mod persistence;
 mod repository;
 mod root;
 mod state;
@@ -57,6 +61,8 @@ async fn main() -> anyhow::Result<()> {
             include_bytes!("../assets/JetBrainsMonoNerdFont-Regular.ttf").as_slice(),
         )]);
         gpui_component::init(cx);
+        AppStatus::init(cx);
+        PersistencePerNote::init(cx);
         setup_theme(cx);
         let window_options = WindowOptions {
             titlebar: Some(TitleBar::title_bar_options()),
