@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.4.1](https://github.com/out-of-order/oden/compare/oden-core-v0.4.0...oden-core-v0.4.1) (2026-09-06)
+
+
+### Bug Fixes
+
+* **oden:** use another db path for dev build ([4054e16](https://github.com/out-of-order/oden/commit/4054e16d04e01a9c761e846db3b01776894f888a))
+
 ## [0.4.0](https://github.com/out-of-order/oden/compare/oden-core-v0.3.0...oden-core-v0.4.0) (2026-09-06)
 
 
