@@ -94,7 +94,7 @@ impl ListView {
                 state.selected_id = Some(item_id);
                 cx.notify();
             });
-        })?;
+        });
         Ok(())
     }
 
@@ -267,7 +267,7 @@ impl ListDelegate for ItemListDelegate {
                     Label::new(preview_content(item.content.clone()))
                         .text_color(muted_color)]))
                 .on_click(move |_event, window, cx| {
-                    focus.focus(window);
+                    focus.focus(window, cx);
                     let select_item_action = SelectItem { selected_id };
                     window.dispatch_action(Box::new(select_item_action), cx);
                 })
@@ -303,7 +303,7 @@ impl Render for ListView {
                 cx.spawn(async move |_this, cx| {
                     if let Err(err) = Self::add_empty_item(cx, repository, selected_id_state).await
                     {
-                        let _ = cx.update_global::<AppStatus, ()>(|state, _cx| {
+                        cx.update_global::<AppStatus, ()>(|state, _cx| {
                             let new_issue = Issue::new(err.to_string());
                             state.issues.insert(AppOperation::CreateNewItem, new_issue);
                         });
@@ -361,7 +361,7 @@ impl Render for ListView {
                                                     .cursor(PointingHand)
                                                     .tooltip("New Item")
                                                     .on_click(move |_event, window, cx| {
-                                                        focus.focus(window);
+                                                        focus.focus(window, cx);
                                                         window.dispatch_action(
                                                             Box::new(actions::NewItem),
                                                             cx,
@@ -449,7 +449,7 @@ mod tests {
         let uuid = Uuid::new_v4();
         window
             .update(cx, |root, window, cx| {
-                root.focus.focus(window);
+                root.focus.focus(window, cx);
                 window.dispatch_action(Box::new(SelectItem { selected_id: uuid }), cx);
             })
             .unwrap();
@@ -472,11 +472,11 @@ mod tests {
         });
         window
             .update(cx, |root, window, cx| {
-                root.list_view.read(cx).focus_handle.focus(window);
+                let focus_handle = { root.list_view.read(cx).focus_handle.clone() };
+                focus_handle.focus(window, cx);
                 window.dispatch_action(Box::new(NewItem), cx);
             })
             .unwrap();
-
         // wait for async tasks to finish.
         cx.run_until_parked();
 
