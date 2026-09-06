@@ -50,7 +50,8 @@ impl ItemStore {
                 store.items.insert(item.id, Item::from(item));
             }
             cx.set_global(store);
-        })
+        });
+        Ok(())
     }
 
     pub fn get(cx: &mut App) -> &Self {

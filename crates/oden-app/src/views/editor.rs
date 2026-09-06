@@ -4,7 +4,7 @@ use gpui::{
     Window, div, px,
 };
 use gpui_component::ActiveTheme;
-use gpui_component::input::{Input, InputEvent, InputState};
+use gpui_component::input::{Editor, EditorState, InputEvent};
 use gpui_component::scroll::ScrollableElement;
 use oden_core::errors::UpdateItemError;
 use tokio::sync::watch;
@@ -19,7 +19,7 @@ use crate::state::SelectedIdState;
 use crate::store::ItemStore;
 
 pub struct EditorView {
-    input_state: Entity<InputState>,
+    input_state: Entity<EditorState>,
     selected_id_state: Entity<SelectedIdState>,
     _selected_id_state_sub: Subscription,
     _input_state_sub: Subscription,
@@ -32,9 +32,8 @@ impl EditorView {
         selected_id_state: Entity<SelectedIdState>,
     ) -> Self {
         let input_state = cx.new(|cx| {
-            InputState::new(window, cx)
-                .multi_line(true)
-                .code_editor("markdown")
+            EditorState::new(window, cx)
+                .language("markdown")
                 .searchable(true)
                 // this is essential so the layout does not break
                 // if the text is too long.
@@ -80,7 +79,7 @@ impl EditorView {
                             tokio::sync::mpsc::unbounded_channel::<UpdateItemError>();
                         cx.spawn(async move |_this, cx| {
                             while let Some(error_value) = error_rx.recv().await {
-                                let _ = cx.update(|cx| {
+                                cx.update(|cx| {
                                     cx.update_global::<AppStatus, ()>(|app_status, _cx| {
                                         app_status.issues.insert(
                                             AppOperation::UpdateItem,
@@ -95,7 +94,7 @@ impl EditorView {
                             tokio::sync::mpsc::unbounded_channel::<PersistenceStatus>();
                         cx.spawn(async move |_this, cx| {
                             while let Some(persistence_value) = persistence_rx.recv().await {
-                                let _ = cx.update(|cx| {
+                                cx.update(|cx| {
                                     cx.update_global::<PersistencePerNote, ()>(
                                         |persistence_per_note, _cx| {
                                             persistence_per_note
@@ -131,7 +130,7 @@ impl EditorView {
     }
 
     #[cfg(test)]
-    pub(crate) fn input_state(&self) -> Entity<InputState> {
+    pub(crate) fn input_state(&self) -> Entity<EditorState> {
         self.input_state.clone()
     }
 }
@@ -156,7 +155,7 @@ impl Render for EditorView {
                     .border_r(px(1.))
                     .border_color(theme.border)
                     .child(
-                        Input::new(&self.input_state)
+                        Editor::new(&self.input_state)
                             .h_full()
                             .border(px(0.))
                             .font_family("JetBrainsMono Nerd Font"),
@@ -223,7 +222,7 @@ mod tests {
         });
         window
             .update(cx, |root, window, cx| {
-                root.focus.focus(window);
+                root.focus.focus(window, cx);
                 window.dispatch_action(Box::new(SelectItem { selected_id }), cx);
             })
             .unwrap();

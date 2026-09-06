@@ -175,7 +175,8 @@ mod tests {
         });
         window
             .update(cx, |root, window, cx| {
-                root.list_view.read(cx).focus_handle.focus(window);
+                let focus_handle = { root.list_view.read(cx).focus_handle.clone() };
+                focus_handle.focus(window, cx);
                 window.dispatch_action(Box::new(NewItem), cx);
             })
             .unwrap();
@@ -212,7 +213,7 @@ mod tests {
         });
         window
             .update(cx, |root, window, cx| {
-                root.focus.focus(window);
+                root.focus.focus(window, cx);
                 window.dispatch_action(
                     Box::new(SelectItem {
                         selected_id: target_id,

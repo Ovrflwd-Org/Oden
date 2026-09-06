@@ -2,7 +2,6 @@ use std::sync::Arc;
 use std::time::Duration;
 
 use gpui::SharedString;
-use gpui::Timer;
 use oden_core::errors::UpdateItemError;
 use oden_core::repository::ItemRepositoryTrait;
 use tokio::sync::mpsc::UnboundedSender;
@@ -29,7 +28,7 @@ impl InputValueWatcher {
 
                 loop {
                     tokio::select! {
-                        _ = Timer::after(Duration::from_millis(1000)) => break,
+                        _ = tokio::time::sleep(Duration::from_millis(1000)) => break,
                         changed = rx.changed() => {
                            if changed.is_err() {
                                return;

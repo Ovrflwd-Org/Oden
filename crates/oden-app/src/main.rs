@@ -2,9 +2,7 @@ use std::sync::Arc;
 use std::{borrow::Cow, path::PathBuf};
 
 use anyhow::anyhow;
-use gpui::{
-    App, AppContext, Application, AssetSource, Entity, Result, SharedString, WindowOptions,
-};
+use gpui::{App, AppContext, AssetSource, Entity, Result, SharedString, WindowOptions};
 use gpui_component::{Root, Theme, ThemeRegistry, TitleBar};
 use oden_core::repository::ItemRepository;
 use rust_embed::RustEmbed;
@@ -56,36 +54,38 @@ mod views;
 #[tokio::main]
 async fn main() -> anyhow::Result<()> {
     let db = setup_database().await?;
-    Application::new().with_assets(Assets).run(|cx: &mut App| {
-        let _ = cx.text_system().add_fonts(vec![Cow::Borrowed(
-            include_bytes!("../assets/JetBrainsMonoNerdFont-Regular.ttf").as_slice(),
-        )]);
-        gpui_component::init(cx);
-        AppStatus::init(cx);
-        PersistencePerNote::init(cx);
-        setup_theme(cx);
-        let window_options = WindowOptions {
-            titlebar: Some(TitleBar::title_bar_options()),
-            ..Default::default()
-        };
-        cx.spawn(async move |cx| {
-            let repository = Arc::new(ItemRepository::new(db));
-            if let Err(err) = ItemStore::init(cx, &repository).await {
-                eprintln!("failed to initialize ItemStore: {err:?}");
-                return;
-            }
-            AppRepository::init(cx, repository);
-            cx.open_window(window_options, |window, cx| {
-                let app_mode: Entity<AppMode> = cx.new(|_| AppMode::List);
-                let selected_id_state: Entity<SelectedIdState> =
-                    cx.new(|_| SelectedIdState::init());
-                let view = cx.new(|cx| AppRoot::new(app_mode, selected_id_state, window, cx));
-                cx.new(|cx| Root::new(view, window, cx))
+    gpui_platform::application()
+        .with_assets(Assets)
+        .run(|cx: &mut App| {
+            let _ = cx.text_system().add_fonts(vec![Cow::Borrowed(
+                include_bytes!("../assets/JetBrainsMonoNerdFont-Regular.ttf").as_slice(),
+            )]);
+            gpui_component::init(cx);
+            AppStatus::init(cx);
+            PersistencePerNote::init(cx);
+            setup_theme(cx);
+            let window_options = WindowOptions {
+                titlebar: Some(TitleBar::title_bar_options()),
+                ..Default::default()
+            };
+            cx.spawn(async move |cx| {
+                let repository = Arc::new(ItemRepository::new(db));
+                if let Err(err) = ItemStore::init(cx, &repository).await {
+                    eprintln!("failed to initialize ItemStore: {err:?}");
+                    return;
+                }
+                AppRepository::init(cx, repository);
+                cx.open_window(window_options, |window, cx| {
+                    let app_mode: Entity<AppMode> = cx.new(|_| AppMode::List);
+                    let selected_id_state: Entity<SelectedIdState> =
+                        cx.new(|_| SelectedIdState::init());
+                    let view = cx.new(|cx| AppRoot::new(app_mode, selected_id_state, window, cx));
+                    cx.new(|cx| Root::new(view, window, cx))
+                })
+                .unwrap();
             })
-            .unwrap();
-        })
-        .detach();
-    });
+            .detach();
+        });
     Ok(())
 }
 

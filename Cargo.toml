@@ -5,8 +5,9 @@ resolver = "2"
 [workspace.dependencies]
 anyhow = "1"
 async-trait = "0.1"
-gpui = "0.2.2"
-gpui-component = { version = "0.5.1", features = ["tree-sitter-languages"] }
+gpui = { package = "gpui-pre", version = "0.3.1" }
+gpui_platform = { package = "gpui-pre-platform", version = "0.3.1", features = ["font-kit"] }
+gpui-component = { git="https://github.com/out-of-order/gpui-component", rev = "ba90c68",features = ["tree-sitter-languages"] }
 tokio = { version = "1", features = ["full"] }
 uuid = { version = "1", features = ["v4"] }
 chrono = { version = "0.4", features = ["serde"] }

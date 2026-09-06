@@ -10,7 +10,7 @@ impl Global for AppRepository {}
 impl AppRepository {
     pub fn init(cx: &mut AsyncApp, repository: Arc<dyn ItemRepositoryTrait + Send + Sync>) {
         let repo = Self(repository);
-        let _ = cx.update(move |cx| {
+        cx.update(move |cx| {
             cx.set_global(repo);
         });
     }

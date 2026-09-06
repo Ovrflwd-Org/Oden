@@ -60,7 +60,7 @@ impl AppRoot {
             .icon(Icon::new(icon))
             .ghost()
             .on_click(move |_event, window, cx| {
-                focus.focus(window);
+                focus.focus(window, cx);
                 match mode {
                     AppMode::List => window.dispatch_action(Box::new(actions::ListMode), cx),
                     AppMode::Search => window.dispatch_action(Box::new(actions::SearchMode), cx),
@@ -124,7 +124,7 @@ impl AppRoot {
                             .tooltip("Settings")
                             .icon(Icon::new(IconName::Settings))
                             .on_click(move |_event, window, cx| {
-                                focus.focus(window);
+                                focus.focus(window, cx);
                                 window.dispatch_action(Box::new(actions::Settings), cx)
                             }),
                     ),
@@ -232,7 +232,7 @@ mod tests {
         for (action, expected_mode) in cases {
             window
                 .update(cx, |root, window, cx| {
-                    root.focus.focus(window);
+                    root.focus.focus(window, cx);
                     window.dispatch_action(action, cx);
                 })
                 .unwrap();
