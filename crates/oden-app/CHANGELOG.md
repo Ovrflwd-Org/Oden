@@ -1,5 +1,12 @@
 # Changelog
 
+## [0.9.0](https://github.com/out-of-order/oden/compare/oden-v0.8.0...oden-v0.9.0) (2026-09-06)
+
+
+### Features
+
+* **oden:** editing persistence ([f714aeb](https://github.com/out-of-order/oden/commit/f714aebe99a454d46e4da7a0e7706b101542c422))
+
 ## [0.8.0](https://github.com/out-of-order/oden/compare/oden-v0.7.1...oden-v0.8.0) (2026-08-27)
 
 
