@@ -13,6 +13,12 @@ use uuid::Uuid;
 
 use crate::{entities::item, errors::DbError};
 
+#[cfg(debug_assertions)]
+const DATABASE_FILE: &str = "oden-dev.db";
+
+#[cfg(not(debug_assertions))]
+const DATABASE_FILE: &str = "oden.db";
+
 // returns the path to the file on disk for the sqlite database.
 fn get_db_path() -> Result<PathBuf> {
     let project_dirs =
@@ -22,7 +28,7 @@ fn get_db_path() -> Result<PathBuf> {
     // windows: %LOCALAPPDATA%\\outoforder\\data
     let data_dir = project_dirs.data_dir();
     fs::create_dir_all(data_dir).map_err(DbError::CreateDir)?;
-    Ok(data_dir.join("oden.db"))
+    Ok(data_dir.join(DATABASE_FILE))
 }
 
 #[cfg(debug_assertions)]
